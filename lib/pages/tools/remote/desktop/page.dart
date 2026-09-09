@@ -10,6 +10,7 @@ import 'gif_export_dialog.dart';
 import 'gif_recorder.dart';
 import 'input/keyboard_listener.dart';
 import 'layout.dart';
+import 'media_remote.dart';
 import 'models/models.dart';
 import 'screenshot_saver.dart';
 import 'session.dart';
@@ -28,6 +29,7 @@ class RemoteControlPage extends StatefulWidget {
 class _RemoteControlPageState extends State<RemoteControlPage> {
   late final RemoteSession _session;
   late final GifRecorder _gifRecorder;
+  late final MediaRemoteBridge _mediaRemote;
 
   bool _savingScreenshot = false;
   bool _closing = false;
@@ -41,11 +43,16 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
     _session = RemoteSession()
       ..addListener(_onSessionChanged)
       ..onRawFrame = _onRawFrame;
+    _mediaRemote = MediaRemoteBridge(
+      onButton: (button) => unawaited(_session.press(button)),
+    );
+    unawaited(_mediaRemote.start());
   }
 
   @override
   void dispose() {
     _recordingTick?.cancel();
+    unawaited(_mediaRemote.stop());
     _session
       ..removeListener(_onSessionChanged)
       ..onRawFrame = null;
