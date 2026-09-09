@@ -78,6 +78,12 @@ jobs:
           keyPassword=mugen-dev
           PROPS
 
+      - name: Show Wrist Remote formatter diff
+        shell: bash
+        run: |
+          dart format lib/pages/tools/remote/desktop/media_remote.dart
+          git diff -- lib/pages/tools/remote/desktop/media_remote.dart || true
+
       - name: Check Dart formatting
         run: .github/scripts/check_format.sh
 
