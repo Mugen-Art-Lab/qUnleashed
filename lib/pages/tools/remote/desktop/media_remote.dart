@@ -32,6 +32,8 @@ class MediaRemoteBridge {
   );
 
   static const String _prefPrefix = 'remote.media.';
+  static const String _queueWhileDisconnectedPref =
+      '${_prefPrefix}queueWhileDisconnected';
 
   static const Map<MediaRemoteInput, RemoteButton> _defaults = {
     MediaRemoteInput.previous: RemoteButton.left,
@@ -48,8 +50,10 @@ class MediaRemoteBridge {
   SharedPreferences? _preferences;
   bool _loaded = false;
   bool _started = false;
+  bool _queueWhileDisconnected = false;
 
   bool get supported => Platform.isAndroid;
+  bool get queueWhileDisconnected => _queueWhileDisconnected;
 
   RemoteButton buttonFor(MediaRemoteInput input) =>
       _mapping[input] ?? _defaults[input]!;
@@ -65,8 +69,13 @@ class MediaRemoteBridge {
       final parsed = _buttonNamed(stored);
       if (parsed != null) _mapping[input] = parsed;
     }
+    _queueWhileDisconnected =
+        preferences.getBool(_queueWhileDisconnectedPref) ?? false;
     _loaded = true;
-    LogService.debug('[WristRemote] mappings loaded');
+    LogService.debug(
+      '[WristRemote] mappings loaded; queueWhileDisconnected='
+      '$_queueWhileDisconnected',
+    );
   }
 
   Future<void> setButtonFor(MediaRemoteInput input, RemoteButton button) async {
@@ -76,14 +85,25 @@ class MediaRemoteBridge {
     LogService.debug('[WristRemote] mapping ${input.name} -> ${button.name}');
   }
 
+  Future<void> setQueueWhileDisconnected(bool value) async {
+    await ensureLoaded();
+    _queueWhileDisconnected = value;
+    await _preferences!.setBool(_queueWhileDisconnectedPref, value);
+    LogService.info(
+      '[WristRemote] queue while disconnected -> $value',
+    );
+  }
+
   Future<void> resetMappings() async {
     await ensureLoaded();
     _mapping
       ..clear()
       ..addAll(_defaults);
+    _queueWhileDisconnected = false;
     for (final input in MediaRemoteInput.values) {
       await _preferences!.remove('$_prefPrefix${input.name}');
     }
+    await _preferences!.remove(_queueWhileDisconnectedPref);
     LogService.debug('[WristRemote] mappings reset');
   }
 
