@@ -1,4 +1,4 @@
-name: Mi Band Remote APK
+name: Wrist Remote APK
 
 on:
   push:
@@ -84,8 +84,11 @@ jobs:
       - name: Analyze
         run: flutter analyze
 
-      - name: Build arm64 release APK
-        run: flutter build apk --release --target-platform android-arm64 --split-per-abi
+      - name: Build arm64 release APK with diagnostics
+        run: >-
+          flutter build apk --release --target-platform android-arm64 --split-per-abi
+          --dart-define=QLOG=true
+          --dart-define=QLOG_LEVEL=debug
 
       - name: Show APK size
         run: ls -lh build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
@@ -93,7 +96,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v6
         with:
-          name: qUnleashed-mi-band-remote-arm64-release
+          name: qUnleashed-wrist-remote-arm64-release
           path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
           if-no-files-found: error
           retention-days: 14
