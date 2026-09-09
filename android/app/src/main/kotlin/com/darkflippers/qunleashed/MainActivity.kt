@@ -16,7 +16,6 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val gnssChannel = "qunleashed/gnss"
     private var gnssMethodChannel: MethodChannel? = null
-    private var mediaRemoteChannel: MediaRemoteChannel? = null
     private var locationManager: LocationManager? = null
     private var gnssCallback: GnssStatus.Callback? = null
     private var satellitesInUse: Int = -1
@@ -35,27 +34,24 @@ class MainActivity : FlutterActivity() {
         HomeWidgetChannel.promote(flutterEngine)
         handleWidgetIntent(intent)
 
-        mediaRemoteChannel?.dispose()
-        mediaRemoteChannel = MediaRemoteChannel(this, flutterEngine)
-
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, gnssChannel)
         gnssMethodChannel = channel
         channel.setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "start" -> {
-                        startGnss()
-                        result.success(null)
-                    }
-                    "stop" -> {
-                        stopGnss()
-                        result.success(null)
-                    }
-                    "count" -> result.success(
-                        if (satellitesInUse >= 0) satellitesInUse else null,
-                    )
-                    else -> result.notImplemented()
+            when (call.method) {
+                "start" -> {
+                    startGnss()
+                    result.success(null)
                 }
+                "stop" -> {
+                    stopGnss()
+                    result.success(null)
+                }
+                "count" -> result.success(
+                    if (satellitesInUse >= 0) satellitesInUse else null,
+                )
+                else -> result.notImplemented()
             }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -76,8 +72,6 @@ class MainActivity : FlutterActivity() {
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         if (HomeWidgetChannel.activity === this) HomeWidgetChannel.activity = null
-        mediaRemoteChannel?.dispose()
-        mediaRemoteChannel = null
         gnssMethodChannel?.setMethodCallHandler(null)
         gnssMethodChannel = null
         super.cleanUpFlutterEngine(flutterEngine)
