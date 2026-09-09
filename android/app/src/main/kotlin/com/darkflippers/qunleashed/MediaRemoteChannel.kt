@@ -126,7 +126,7 @@ class MediaRemoteChannel(
                 .build(),
         )
         session.setPlaybackToRemote(
-            object : VolumeProvider(VOLUME_CONTROL_RELATIVE, 100, 50) {
+            object : VolumeProvider(VolumeProvider.VOLUME_CONTROL_RELATIVE, 100, 50) {
                 override fun onAdjustVolume(direction: Int) {
                     when {
                         direction > 0 -> sendButton("up")
