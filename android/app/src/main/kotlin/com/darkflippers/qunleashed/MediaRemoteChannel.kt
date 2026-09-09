@@ -8,16 +8,20 @@ import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.KeyEvent
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 /**
- * Android MediaSession bridge used by the Remote Control page.
+ * Android MediaSession bridge used by Wrist Remote.
  *
- * A watch can keep talking to Android as if it were controlling music while
+ * A wearable can keep talking to Android as if it were controlling music while
  * qUnleashed turns those transport/volume commands into Flipper button names
  * and forwards them to Dart over a MethodChannel.
+ *
+ * This object is owned by the cached FlutterEngine rather than MainActivity, so
+ * recreating or destroying the Activity does not tear down the MediaSession.
  */
 class MediaRemoteChannel(
     context: Context,
@@ -26,6 +30,7 @@ class MediaRemoteChannel(
     companion object {
         private const val CHANNEL = "qunleashed/media_remote"
         private const val DOUBLE_TAP_MS = 400L
+        private const val TAG = "WristRemote"
 
         private const val ACTIONS =
             PlaybackState.ACTION_PLAY or
@@ -43,6 +48,7 @@ class MediaRemoteChannel(
     private var pendingCenterTap: Runnable? = null
 
     init {
+        Log.i(TAG, "bridge attached to FlutterEngine pid=${android.os.Process.myPid()}")
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "start" -> {
@@ -59,14 +65,19 @@ class MediaRemoteChannel(
     }
 
     fun dispose() {
+        Log.i(TAG, "bridge dispose pid=${android.os.Process.myPid()}")
         stop()
         channel.setMethodCallHandler(null)
     }
 
     private fun start() {
-        if (mediaSession != null) return
+        if (mediaSession != null) {
+            Log.d(TAG, "start ignored: MediaSession already active")
+            return
+        }
 
-        val session = MediaSession(appContext, "qUnleashed Flipper Remote")
+        Log.i(TAG, "creating MediaSession pid=${android.os.Process.myPid()}")
+        val session = MediaSession(appContext, "qUnleashed Wrist Remote")
         session.setCallback(
             object : MediaSession.Callback() {
                 override fun onPlay() = centerTap()
@@ -110,7 +121,7 @@ class MediaRemoteChannel(
             PlaybackState.Builder()
                 .setActions(ACTIONS)
                 // Keep the fake player "playing" so it remains the preferred
-                // media-button target while Remote Control is open.
+                // media-button target while Remote Control is active.
                 .setState(
                     PlaybackState.STATE_PLAYING,
                     PlaybackState.PLAYBACK_POSITION_UNKNOWN,
@@ -121,8 +132,8 @@ class MediaRemoteChannel(
         session.setMetadata(
             MediaMetadata.Builder()
                 .putString(MediaMetadata.METADATA_KEY_TITLE, "Flipper Remote")
-                .putString(MediaMetadata.METADATA_KEY_ARTIST, "qUnleashed · Mi Band")
-                .putString(MediaMetadata.METADATA_KEY_ALBUM, "Mugen Art Lab")
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, "qUnleashed · Wrist Remote")
+                .putString(MediaMetadata.METADATA_KEY_ALBUM, "qUnleashed")
                 .build(),
         )
         session.setPlaybackToRemote(
@@ -137,16 +148,22 @@ class MediaRemoteChannel(
         )
         session.isActive = true
         mediaSession = session
+        Log.i(TAG, "MediaSession active")
     }
 
     private fun stop() {
         pendingCenterTap?.let(mainHandler::removeCallbacks)
         pendingCenterTap = null
 
-        mediaSession?.let { session ->
-            session.isActive = false
-            session.release()
+        val session = mediaSession
+        if (session == null) {
+            Log.d(TAG, "stop ignored: no MediaSession")
+            return
         }
+
+        Log.i(TAG, "releasing MediaSession")
+        session.isActive = false
+        session.release()
         mediaSession = null
     }
 
@@ -172,6 +189,7 @@ class MediaRemoteChannel(
     }
 
     private fun sendButton(button: String) {
+        Log.d(TAG, "media command -> $button")
         mainHandler.post {
             channel.invokeMethod("button", button)
         }
