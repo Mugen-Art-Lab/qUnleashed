@@ -11,6 +11,7 @@ import 'gif_recorder.dart';
 import 'input/keyboard_listener.dart';
 import 'layout.dart';
 import 'media_remote.dart';
+import 'media_remote_settings.dart';
 import 'models/models.dart';
 import 'screenshot_saver.dart';
 import 'session.dart';
@@ -189,6 +190,10 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
     Navigator.of(context).pop();
   }
 
+  Future<void> _openWristRemoteSettings() async {
+    await showMediaRemoteSettingsDialog(context, _mediaRemote);
+  }
+
   Future<void> _copyScreenshot() async {
     if (_savingScreenshot) return;
     setState(() => _savingScreenshot = true);
@@ -334,6 +339,13 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
                     onPressed: _close,
                     icon: const Icon(Icons.arrow_back),
                   ),
+                  actions: [
+                    IconButton(
+                      tooltip: 'Wrist remote mapping',
+                      onPressed: _openWristRemoteSettings,
+                      icon: const Icon(Icons.watch_outlined),
+                    ),
+                  ],
                 ),
           body: SafeArea(
             child: LayoutBuilder(
