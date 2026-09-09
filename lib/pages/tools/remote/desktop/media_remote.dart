@@ -69,7 +69,10 @@ class MediaRemoteBridge {
     LogService.debug('[WristRemote] mappings loaded');
   }
 
-  Future<void> setButtonFor(MediaRemoteInput input, RemoteButton button) async {
+  Future<void> setButtonFor(
+    MediaRemoteInput input,
+    RemoteButton button,
+  ) async {
     await ensureLoaded();
     _mapping[input] = button;
     await _preferences!.setString('$_prefPrefix${input.name}', button.name);
