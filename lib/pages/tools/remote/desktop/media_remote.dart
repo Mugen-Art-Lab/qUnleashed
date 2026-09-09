@@ -89,9 +89,7 @@ class MediaRemoteBridge {
     await ensureLoaded();
     _queueWhileDisconnected = value;
     await _preferences!.setBool(_queueWhileDisconnectedPref, value);
-    LogService.info(
-      '[WristRemote] queue while disconnected -> $value',
-    );
+    LogService.info('[WristRemote] queue while disconnected -> $value');
   }
 
   Future<void> resetMappings() async {
