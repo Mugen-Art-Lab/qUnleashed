@@ -68,7 +68,7 @@ jobs:
           JSON
 
       - name: Check Dart formatting
-        run: dart format --output=none --set-exit-if-changed lib
+        run: .github/scripts/check_format.sh
 
       - name: Analyze
         run: flutter analyze
