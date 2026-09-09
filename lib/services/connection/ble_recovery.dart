@@ -130,9 +130,7 @@ class BleRecoveryService {
       try {
         await client.connect(currentTarget);
       } catch (error) {
-        LogService.warn(
-          '[BleRecovery] retry $attemptNumber failed: $error',
-        );
+        LogService.warn('[BleRecovery] retry $attemptNumber failed: $error');
       } finally {
         _connectInFlight = false;
       }
