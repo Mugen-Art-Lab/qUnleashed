@@ -149,10 +149,12 @@ class BleForegroundService with WidgetsBindingObserver {
         channelName: l10n.notificationChannelBackgroundLink,
         channelDescription: l10n.notificationChannelBackgroundLinkDescription,
         // LOW keeps the notification quiet (no sound/vibration/heads-up) while
-        // still being a valid foreground-service notification.
+        // still being a valid foreground-service notification. SECRET keeps it
+        // off secure lock screens while preserving the required notification.
         channelImportance: NotificationChannelImportance.LOW,
         priority: NotificationPriority.LOW,
         onlyAlertOnce: true,
+        visibility: NotificationVisibility.VISIBILITY_SECRET,
       ),
       iosNotificationOptions: const IOSNotificationOptions(),
       // No periodic task handler: the service exists only to elevate the
