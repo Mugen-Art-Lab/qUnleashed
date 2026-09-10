@@ -3,8 +3,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../../../../theme/theme.dart';
 import '../../../../components/notification.dart';
+import '../../../../services/logging.dart';
+import '../../../../theme/theme.dart';
 import 'package:qunleashed/components/appbar.dart';
 import 'gif_export_dialog.dart';
 import 'gif_recorder.dart';
@@ -27,7 +28,8 @@ class RemoteControlPage extends StatefulWidget {
   State<RemoteControlPage> createState() => _RemoteControlPageState();
 }
 
-class _RemoteControlPageState extends State<RemoteControlPage> {
+class _RemoteControlPageState extends State<RemoteControlPage>
+    with WidgetsBindingObserver {
   late final RemoteSession _session;
   late final GifRecorder _gifRecorder;
   late final MediaRemoteBridge _mediaRemote;
@@ -40,18 +42,18 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _gifRecorder = GifRecorder();
     _session = RemoteSession()
       ..addListener(_onSessionChanged)
       ..onRawFrame = _onRawFrame;
-    _mediaRemote = MediaRemoteBridge(
-      onButton: (button) => unawaited(_session.press(button)),
-    );
+    _mediaRemote = MediaRemoteBridge(onButton: _onMediaRemoteButton);
     unawaited(_mediaRemote.start());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _recordingTick?.cancel();
     unawaited(_mediaRemote.stop());
     _session
@@ -60,6 +62,29 @@ class _RemoteControlPageState extends State<RemoteControlPage> {
     _session.dispose();
     if (_gifRecorder.state != GifRecordingState.idle) _gifRecorder.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_session.resumeVisuals());
+      return;
+    }
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      unawaited(_session.pauseVisuals());
+    }
+  }
+
+  void _onMediaRemoteButton(RemoteButton button) {
+    if (_session.isDisconnected && !_mediaRemote.queueWhileDisconnected) {
+      LogService.debug(
+        '[WristRemote] dropped ${button.name}: Flipper disconnected',
+      );
+      return;
+    }
+    unawaited(_session.press(button));
   }
 
   void _syncRecordingFlag() {
