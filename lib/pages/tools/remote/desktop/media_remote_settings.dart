@@ -23,6 +23,11 @@ Future<void> showMediaRemoteSettingsDialog(
             if (context.mounted) setState(() {});
           }
 
+          Future<void> setQueueWhileDisconnected(bool value) async {
+            await bridge.setQueueWhileDisconnected(value);
+            if (context.mounted) setState(() {});
+          }
+
           Future<void> reset() async {
             await bridge.resetMappings();
             if (context.mounted) setState(() {});
@@ -51,6 +56,19 @@ Future<void> showMediaRemoteSettingsDialog(
                       if (input != MediaRemoteInput.values.last)
                         const Divider(height: 20),
                     ],
+                    const Divider(height: 28),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'Queue wrist inputs while disconnected',
+                      ),
+                      subtitle: const Text(
+                        'Off drops commands during BLE recovery. On may replay '
+                        'them after reconnect.',
+                      ),
+                      value: bridge.queueWhileDisconnected,
+                      onChanged: setQueueWhileDisconnected,
+                    ),
                     const SizedBox(height: 8),
                     const Text(
                       'Note: some bands change Android system volume directly '
