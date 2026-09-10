@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flipperlib/flipperlib.dart';
 
 import '../logging.dart';
+import 'foreground_service.dart';
 
 /// Keeps trying a previously connected BLE Flipper after flipperlib's immediate
 /// in-place reconnect attempt has been exhausted.
@@ -47,6 +48,7 @@ class BleRecoveryService {
     final device = state.device;
     if (state.connected && device != null) {
       final wasRecovering = _attempt > 0 || _retryTimer != null;
+      BleForegroundService.instance.setRecoveryActive(false);
       if (device.isBle) {
         _target = device;
       } else {
@@ -65,6 +67,7 @@ class BleRecoveryService {
 
     if (_isManualDisconnect(state.closeReason)) {
       LogService.info('[BleRecovery] manual disconnect; retries cancelled');
+      BleForegroundService.instance.setRecoveryActive(false);
       _target = null;
       _attempt = 0;
       _connectInFlight = false;
@@ -77,7 +80,15 @@ class BleRecoveryService {
     if (state.reconnecting || state.connecting) return;
 
     final target = _target;
-    if (target == null || !target.isBle) return;
+    if (target == null || !target.isBle) {
+      BleForegroundService.instance.setRecoveryActive(false);
+      return;
+    }
+
+    // Keep the already-running connected-device foreground service alive while
+    // fresh-session retries continue in the background. This prevents Android
+    // from demoting qUnleashed to an empty process between reconnect attempts.
+    BleForegroundService.instance.setRecoveryActive(true);
     _scheduleRetry();
   }
 
@@ -110,6 +121,7 @@ class BleRecoveryService {
       if (client == null || currentTarget == null) return;
       if (client.isConnected) {
         _attempt = 0;
+        BleForegroundService.instance.setRecoveryActive(false);
         return;
       }
       if (client.isConnecting) {
