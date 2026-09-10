@@ -50,6 +50,7 @@ class RemoteSession extends ChangeNotifier {
   Timer? _unlockedFlashTimer;
   bool _isDisconnected = false;
   bool _starting = false;
+  bool _visualsEnabled = true;
   bool _disposed = false;
   bool _stopped = false;
 
@@ -71,7 +72,9 @@ class RemoteSession extends ChangeNotifier {
   set recording(bool value) {
     if (_recording == value) return;
     _recording = value;
-    if (!value && _pendingFrame != null) _ensureDecodeWorker();
+    if (!value && _pendingFrame != null && _visualsEnabled) {
+      _ensureDecodeWorker();
+    }
   }
 
   Uint8List? capturePng() {
@@ -80,15 +83,36 @@ class RemoteSession extends ChangeNotifier {
     return encodeScreenshotPng(raw);
   }
 
+  /// Keeps the control RPC session alive but pauses the expensive framebuffer
+  /// stream while the page is not visible. Wrist Remote can still send inputs.
+  Future<void> pauseVisuals() async {
+    if (_disposed || !_visualsEnabled) return;
+    _visualsEnabled = false;
+    _pendingFrame = null;
+    _pendingRgba = null;
+    if (!_client.isConnected) return;
+    await _stopVisuals();
+  }
+
+  Future<void> resumeVisuals() async {
+    if (_disposed || _visualsEnabled) return;
+    _visualsEnabled = true;
+    if (_client.isConnected) await _start();
+  }
+
   /// Asks for the stream straight away — a stale "not connected" flag must not
   /// keep the page from trying, so the verdict comes from the call itself.
   Future<void> _start() async {
-    if (_starting) return;
+    if (_starting || !_visualsEnabled || _disposed) return;
     _starting = true;
     try {
       await _client.guiStartScreenStream(
         priority: FlipperRequestPriority.rightNow,
       );
+      if (!_visualsEnabled || _disposed) {
+        await _stopVisuals();
+        return;
+      }
       await _client.desktopStatusSubscribe();
       final frames = await _client.desktopIsLocked();
       for (final f in frames) {
@@ -108,6 +132,7 @@ class RemoteSession extends ChangeNotifier {
   void shutdown() {
     if (_disposed) return;
     _disposed = true;
+    _visualsEnabled = false;
     DeviceInfoWatchService.instance.unfreeze();
     for (final h in _held.values) {
       h.longTimer?.cancel();
@@ -122,9 +147,7 @@ class RemoteSession extends ChangeNotifier {
     unawaited(_chain(_releaseWireDown).whenComplete(_stopRemote));
   }
 
-  Future<void> _stopRemote() async {
-    if (_stopped) return;
-    _stopped = true;
+  Future<void> _stopVisuals() async {
     if (!_client.isConnected) return;
     await Future.wait([
       _client
@@ -136,6 +159,12 @@ class RemoteSession extends ChangeNotifier {
           .timeout(_kStopTimeout)
           .catchError((_) => <Main>[]),
     ]);
+  }
+
+  Future<void> _stopRemote() async {
+    if (_stopped) return;
+    _stopped = true;
+    await _stopVisuals();
   }
 
   @override
@@ -161,11 +190,13 @@ class RemoteSession extends ChangeNotifier {
       return;
     }
 
-    unawaited(_start());
+    _isDisconnected = false;
+    _safeNotify();
+    if (_visualsEnabled) unawaited(_start());
   }
 
   void _applyStatus(Status status) {
-    if (_disposed) return;
+    if (_disposed || !_visualsEnabled) return;
     final wasLocked = _isLocked;
     _isLocked = status.locked;
     if (_lockStatusKnown && wasLocked && !status.locked) _flashUnlocked();
@@ -184,7 +215,7 @@ class RemoteSession extends ChangeNotifier {
   }
 
   void _onFrame(ScreenFrame frame) {
-    if (_disposed) return;
+    if (_disposed || !_visualsEnabled) return;
     if (_isDisconnected) {
       _isDisconnected = false;
       _safeNotify();
@@ -198,14 +229,14 @@ class RemoteSession extends ChangeNotifier {
   }
 
   void _ensureDecodeWorker() {
-    if (_decodeBusy || _disposed) return;
+    if (_decodeBusy || _disposed || !_visualsEnabled) return;
     _decodeBusy = true;
     unawaited(_pumpDecode());
   }
 
   Future<void> _pumpDecode() async {
     try {
-      while (!_disposed && !_recording) {
+      while (!_disposed && !_recording && _visualsEnabled) {
         final frame = _pendingFrame;
         if (frame == null) return;
         _pendingFrame = null;
@@ -218,7 +249,7 @@ class RemoteSession extends ChangeNotifier {
   }
 
   void _ingest(RawFrameData raw) {
-    if (_disposed) return;
+    if (_disposed || !_visualsEnabled) return;
     _lastBgColor = raw.bgColor;
     _lastFgColor = raw.fgColor;
     final orientationChanged = raw.orientation != _orientation;
@@ -230,6 +261,7 @@ class RemoteSession extends ChangeNotifier {
   }
 
   void _scheduleUpload(Uint8List rgba) {
+    if (!_visualsEnabled) return;
     _pendingRgba = rgba;
     if (_uploadBusy || _disposed) return;
     _uploadBusy = true;
@@ -238,12 +270,12 @@ class RemoteSession extends ChangeNotifier {
 
   Future<void> _pumpUpload() async {
     try {
-      while (!_disposed) {
+      while (!_disposed && _visualsEnabled) {
         final rgba = _pendingRgba;
         if (rgba == null) return;
         _pendingRgba = null;
         final image = await createImageFromRgba(rgba);
-        if (_disposed) {
+        if (_disposed || !_visualsEnabled) {
           image.dispose();
           return;
         }
