@@ -1,0 +1,82 @@
+name: Wrist Remote rebase check
+
+on:
+  push:
+    branches:
+      - wrist-remote-pr-work
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: ./.github/actions/setup-flutter
+
+      - name: Stub Firebase Dart configuration
+        run: .github/scripts/stub_firebase_config.sh
+
+      - name: Stub Android Firebase configuration
+        shell: bash
+        run: |
+          cat > android/app/google-services.json <<'JSON'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "qunleashed-wrist-remote-dev",
+              "storage_bucket": "qunleashed-wrist-remote-dev.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+                  "android_client_info": {
+                    "package_name": "com.darkflippers.qunleashed"
+                  }
+                },
+                "api_key": [{"current_key": "dev-placeholder-key"}],
+                "services": {"appinvite_service": {"other_platform_oauth_client": []}}
+              }
+            ],
+            "configuration_version": "1"
+          }
+          JSON
+
+      - name: Generate localization
+        run: flutter gen-l10n
+
+      - name: Check translation ownership rule
+        run: printf '%s\n' translations/app_en.arb | .github/scripts/check_translation_sources.sh
+
+      - name: Check formatting
+        run: .github/scripts/check_format.sh
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Build arm64 release APK
+        run: flutter build apk --release --target-platform android-arm64 --split-per-abi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: wrist-remote-rebased-arm64
+          path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          if-no-files-found: error
