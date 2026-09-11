@@ -36,7 +36,7 @@ class RemoteWideBody extends StatelessWidget {
     required this.onCancelGif,
     required this.onHoldBegin,
     required this.onHoldEnd,
-    required this.onWristRemoteSettings,
+    this.onWristRemoteSettings,
   });
 
   final RemoteLayout layout;
@@ -58,7 +58,7 @@ class RemoteWideBody extends StatelessWidget {
   final VoidCallback onCancelGif;
   final void Function(RemoteButton) onHoldBegin;
   final void Function(RemoteButton) onHoldEnd;
-  final VoidCallback onWristRemoteSettings;
+  final VoidCallback? onWristRemoteSettings;
 
   Widget _ledSlot(RemoteLayout layout, bool connected) {
     final radius =
@@ -148,20 +148,22 @@ class RemoteWideBody extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      SizedBox(
-                        width: RemoteLayout.infoIconSize,
-                        height: RemoteLayout.infoIconSize,
-                        child: IconButton(
-                          padding: EdgeInsets.zero,
-                          tooltip: context.l10n.wristRemoteMappingTitle,
-                          onPressed: onWristRemoteSettings,
-                          icon: Icon(
-                            Icons.watch_outlined,
-                            color: context.appColors.accent,
+                      if (onWristRemoteSettings != null) ...[
+                        SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: IconButton(
+                            padding: EdgeInsets.zero,
+                            tooltip: context.l10n.wristRemoteMappingTitle,
+                            onPressed: onWristRemoteSettings,
+                            icon: Icon(
+                              Icons.watch_outlined,
+                              color: context.appColors.accent,
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
+                        const SizedBox(width: 8),
+                      ],
                       const RemoteInfoHint(),
                     ],
                   ),
