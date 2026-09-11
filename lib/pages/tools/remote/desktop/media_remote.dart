@@ -21,7 +21,7 @@ enum MediaRemoteInput {
 
 /// Gesture timing used by Wrist Remote mappings.
 const Duration wristRemoteDoubleTapDuration = Duration(milliseconds: 400);
-const Duration wristRemoteHoldDuration = Duration(milliseconds: 800);
+const Duration wristRemoteHoldDuration = Duration(milliseconds: 1000);
 
 /// Dart half of the Android MediaSession bridge used by Wrist Remote.
 ///
