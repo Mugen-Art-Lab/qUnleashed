@@ -53,22 +53,26 @@ class MediaRemoteChannel(
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "start" -> {
-                    start()
-                    result.success(null)
+                    try {
+                        start()
+                        result.success(null)
+                    } catch (error: Throwable) {
+                        Log.e(TAG, "Failed to start MediaSession", error)
+                        result.error("media_session_start_failed", error.message, null)
+                    }
                 }
                 "stop" -> {
-                    stop()
-                    result.success(null)
+                    try {
+                        stop()
+                        result.success(null)
+                    } catch (error: Throwable) {
+                        Log.e(TAG, "Failed to stop MediaSession", error)
+                        result.error("media_session_stop_failed", error.message, null)
+                    }
                 }
                 else -> result.notImplemented()
             }
         }
-    }
-
-    fun dispose() {
-        trace("bridge dispose pid=${android.os.Process.myPid()}")
-        stop()
-        channel.setMethodCallHandler(null)
     }
 
     private fun start() {
@@ -79,77 +83,91 @@ class MediaRemoteChannel(
 
         trace("creating MediaSession pid=${android.os.Process.myPid()}")
         val session = MediaSession(appContext, "qUnleashed Wrist Remote")
-        session.setCallback(
-            object : MediaSession.Callback() {
-                override fun onPlay() = sendInput("playPause")
-
-                override fun onPause() = sendInput("playPause")
-
-                override fun onSkipToPrevious() = sendInput("previous")
-
-                override fun onSkipToNext() = sendInput("next")
-
-                override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
-                    @Suppress("DEPRECATION")
-                    val event = mediaButtonIntent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
-                        ?: return super.onMediaButtonEvent(mediaButtonIntent)
-                    if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount != 0) return true
-
-                    return when (event.keyCode) {
-                        KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                            sendInput("previous")
-                            true
-                        }
-                        KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                            sendInput("next")
-                            true
-                        }
-                        KeyEvent.KEYCODE_MEDIA_PLAY,
-                        KeyEvent.KEYCODE_MEDIA_PAUSE,
-                        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
-                        -> {
-                            sendInput("playPause")
-                            true
-                        }
-                        else -> super.onMediaButtonEvent(mediaButtonIntent)
-                    }
-                }
-            },
-            mainHandler,
-        )
-
-        session.setPlaybackState(
-            PlaybackState.Builder()
-                .setActions(ACTIONS)
-                // Keep the fake player "playing" so it remains the preferred
-                // media-button target while Remote Control is active.
-                .setState(
-                    PlaybackState.STATE_PLAYING,
-                    PlaybackState.PLAYBACK_POSITION_UNKNOWN,
-                    1.0f,
-                )
-                .build(),
-        )
-        session.setMetadata(
-            MediaMetadata.Builder()
-                .putString(MediaMetadata.METADATA_KEY_TITLE, "Flipper Remote")
-                .putString(MediaMetadata.METADATA_KEY_ARTIST, "qUnleashed · Wrist Remote")
-                .putString(MediaMetadata.METADATA_KEY_ALBUM, "qUnleashed")
-                .build(),
-        )
-        session.setPlaybackToRemote(
-            object : VolumeProvider(VolumeProvider.VOLUME_CONTROL_RELATIVE, 100, 50) {
-                override fun onAdjustVolume(direction: Int) {
-                    when {
-                        direction > 0 -> sendInput("volumeUp")
-                        direction < 0 -> sendInput("volumeDown")
-                    }
-                }
-            },
-        )
-        session.isActive = true
+        // Publish ownership immediately so any cleanup path can release a
+        // partially configured session. start() itself is synchronous on the
+        // platform thread, so stop() cannot interleave with this block.
         mediaSession = session
-        trace("MediaSession active")
+
+        try {
+            session.setCallback(
+                object : MediaSession.Callback() {
+                    override fun onPlay() = sendInput("playPause")
+
+                    override fun onPause() = sendInput("playPause")
+
+                    override fun onSkipToPrevious() = sendInput("previous")
+
+                    override fun onSkipToNext() = sendInput("next")
+
+                    override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
+                        @Suppress("DEPRECATION")
+                        val event = mediaButtonIntent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
+                            ?: return super.onMediaButtonEvent(mediaButtonIntent)
+                        if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount != 0) return true
+
+                        // Returning true is intentional: it keeps the same key
+                        // from falling through to onPlay/onPause/onSkipTo* and
+                        // producing a second Flipper press.
+                        return when (event.keyCode) {
+                            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
+                                sendInput("previous")
+                                true
+                            }
+                            KeyEvent.KEYCODE_MEDIA_NEXT -> {
+                                sendInput("next")
+                                true
+                            }
+                            KeyEvent.KEYCODE_MEDIA_PLAY,
+                            KeyEvent.KEYCODE_MEDIA_PAUSE,
+                            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+                            -> {
+                                sendInput("playPause")
+                                true
+                            }
+                            else -> super.onMediaButtonEvent(mediaButtonIntent)
+                        }
+                    }
+                },
+                mainHandler,
+            )
+
+            session.setPlaybackState(
+                PlaybackState.Builder()
+                    .setActions(ACTIONS)
+                    // Keep the fake player "playing" so it remains the preferred
+                    // media-button target while Wrist Remote is explicitly enabled.
+                    .setState(
+                        PlaybackState.STATE_PLAYING,
+                        PlaybackState.PLAYBACK_POSITION_UNKNOWN,
+                        1.0f,
+                    )
+                    .build(),
+            )
+            session.setMetadata(
+                MediaMetadata.Builder()
+                    .putString(MediaMetadata.METADATA_KEY_TITLE, "Flipper Remote")
+                    .putString(MediaMetadata.METADATA_KEY_ARTIST, "qUnleashed · Wrist Remote")
+                    .putString(MediaMetadata.METADATA_KEY_ALBUM, "qUnleashed")
+                    .build(),
+            )
+            session.setPlaybackToRemote(
+                object : VolumeProvider(VolumeProvider.VOLUME_CONTROL_RELATIVE, 100, 50) {
+                    override fun onAdjustVolume(direction: Int) {
+                        when {
+                            direction > 0 -> sendInput("volumeUp")
+                            direction < 0 -> sendInput("volumeDown")
+                        }
+                    }
+                },
+            )
+            session.isActive = true
+            trace("MediaSession active")
+        } catch (error: Throwable) {
+            mediaSession = null
+            runCatching { session.isActive = false }
+            runCatching { session.release() }
+            throw error
+        }
     }
 
     private fun stop() {
@@ -159,10 +177,15 @@ class MediaRemoteChannel(
             return
         }
 
-        trace("releasing MediaSession")
-        session.isActive = false
-        session.release()
+        // Clear first so even a release failure cannot leave future start()
+        // calls believing this session is still usable.
         mediaSession = null
+        trace("releasing MediaSession")
+        try {
+            session.isActive = false
+        } finally {
+            session.release()
+        }
     }
 
     private fun sendInput(input: String) {
