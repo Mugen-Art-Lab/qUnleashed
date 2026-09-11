@@ -5,6 +5,7 @@ import 'package:flipperlib/flipperlib.dart' hide DateTime, File;
 import 'package:flutter/foundation.dart';
 
 import '../../../../services/connection/device_info_watch.dart';
+import '../../../../services/logging.dart';
 import 'frame_decoder.dart';
 import 'models/models.dart';
 import 'screenshot_encoder.dart';
@@ -351,9 +352,17 @@ class RemoteSession extends ChangeNotifier {
     return next;
   }
 
-  Future<void> _sendInput(InputKey key, InputType type) => _client
-      .guiSendInputAndForget(SendInputEventRequest(key: key, type: type))
-      .catchError((_) {});
+  Future<void> _sendInput(InputKey key, InputType type) async {
+    LogService.debug('[RemoteInput] wire ${type.name} ${key.name}');
+    try {
+      await _client.guiSendInputAndForget(
+        SendInputEventRequest(key: key, type: type),
+      );
+      LogService.debug('[RemoteInput] sent ${type.name} ${key.name}');
+    } catch (e) {
+      LogService.warn('[RemoteInput] failed ${type.name} ${key.name}: $e');
+    }
+  }
 
   Future<void> _down(InputKey key) {
     if (!_wireDown.add(key)) return Future<void>.value();
@@ -370,16 +379,21 @@ class RemoteSession extends ChangeNotifier {
       onAnswer?.call();
       return Future<void>.value();
     }
+    LogService.debug('[RemoteInput] wire RELEASE ${key.name}');
     final sent = Completer<void>();
     unawaited(
       _client
           .guiSendInput(
             SendInputEventRequest(key: key, type: InputType.RELEASE),
             onSent: () {
+              LogService.debug('[RemoteInput] sent RELEASE ${key.name}');
               if (!sent.isCompleted) sent.complete();
             },
           )
-          .catchError((_) => <Main>[])
+          .catchError((e) {
+            LogService.warn('[RemoteInput] failed RELEASE ${key.name}: $e');
+            return <Main>[];
+          })
           .whenComplete(() {
             if (!sent.isCompleted) sent.complete();
             onAnswer?.call();
