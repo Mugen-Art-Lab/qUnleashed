@@ -6,7 +6,6 @@ import android.content.Intent
 import android.location.GnssStatus
 import android.location.LocationManager
 import android.os.Build
-import android.util.Log
 import com.darkflippers.qunleashed.widget.FlutterEngineHolder
 import com.darkflippers.qunleashed.widget.HomeWidgetChannel
 import com.darkflippers.qunleashed.widget.KeyWidgetReceiver
@@ -15,10 +14,6 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
-    companion object {
-        private const val TAG = "WristRemote"
-    }
-
     private val gnssChannel = "qunleashed/gnss"
     private var gnssMethodChannel: MethodChannel? = null
     private var locationManager: LocationManager? = null
@@ -32,32 +27,30 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        Log.i(TAG, "MainActivity configure pid=${android.os.Process.myPid()}")
         // The engine may have been started cold by a widget tap: bring it up
         // to the full app now that there is a screen.
         HomeWidgetChannel.attach(this, flutterEngine)
         HomeWidgetChannel.activity = this
         HomeWidgetChannel.promote(flutterEngine)
         handleWidgetIntent(intent)
-
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, gnssChannel)
         gnssMethodChannel = channel
         channel.setMethodCallHandler { call, result ->
-            when (call.method) {
-                "start" -> {
-                    startGnss()
-                    result.success(null)
+                when (call.method) {
+                    "start" -> {
+                        startGnss()
+                        result.success(null)
+                    }
+                    "stop" -> {
+                        stopGnss()
+                        result.success(null)
+                    }
+                    "count" -> result.success(
+                        if (satellitesInUse >= 0) satellitesInUse else null,
+                    )
+                    else -> result.notImplemented()
                 }
-                "stop" -> {
-                    stopGnss()
-                    result.success(null)
-                }
-                "count" -> result.success(
-                    if (satellitesInUse >= 0) satellitesInUse else null,
-                )
-                else -> result.notImplemented()
             }
-        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -77,7 +70,6 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
-        Log.i(TAG, "MainActivity cleanup pid=${android.os.Process.myPid()}")
         if (HomeWidgetChannel.activity === this) HomeWidgetChannel.activity = null
         gnssMethodChannel?.setMethodCallHandler(null)
         gnssMethodChannel = null
@@ -117,7 +109,6 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
-        Log.i(TAG, "MainActivity destroy pid=${android.os.Process.myPid()}")
         stopGnss()
         super.onDestroy()
     }
