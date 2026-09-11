@@ -17,6 +17,7 @@ const Duration _kStopTimeout = Duration(seconds: 2);
 class RemoteSession extends ChangeNotifier {
   RemoteSession({FlipperClient? client})
     : _client = client ?? FlipperOneClient().get() {
+    _inputAvailable = _client.isConnected;
     _frameSub = _client.screenFrameStream().listen(_onFrame);
     _statusSub = _client.desktopStatusStream().listen(_applyStatus);
     _connectionSub = _client.connectionStream.listen(_onConnectionState);
@@ -50,6 +51,7 @@ class RemoteSession extends ChangeNotifier {
   bool _justUnlocked = false;
   Timer? _unlockedFlashTimer;
   bool _isDisconnected = false;
+  bool _inputAvailable = false;
   bool _starting = false;
   bool _visualsEnabled = true;
 
@@ -75,6 +77,7 @@ class RemoteSession extends ChangeNotifier {
   StreamOrientation get orientation => _orientation;
   bool get justUnlocked => _justUnlocked;
   bool get isDisconnected => _isDisconnected;
+  bool get inputAvailable => _inputAvailable;
   List<QueuedButton> get queue => _queue;
   int? get lastBgColor => _lastBgColor;
   int? get lastFgColor => _lastFgColor;
@@ -104,6 +107,7 @@ class RemoteSession extends ChangeNotifier {
     await _stopVisuals();
   }
 
+  /// Re-opens the framebuffer/status streams after [pauseVisuals].
   Future<void> resumeVisuals() async {
     if (_disposed || _visualsEnabled) return;
     _visualsEnabled = true;
@@ -114,10 +118,10 @@ class RemoteSession extends ChangeNotifier {
   /// keep the page from trying, so the verdict comes from the call itself.
   ///
   /// Exactly one open runs at a time, nominally three RPCs — fewer if the page
-  /// goes away mid-flight. A request arriving during one is held in
-  /// [_restartWanted] and run afterwards rather than dropped: dropping it left
-  /// a reconnect with nothing behind it, and since a frame is the only thing
-  /// that clears [_isDisconnected], the page stayed blank for good.
+  /// goes away or visuals are paused mid-flight. A request arriving during one
+  /// is held in [_restartWanted] and run afterwards rather than dropped:
+  /// dropping it left a reconnect with nothing behind it, and since a frame is
+  /// the only thing that clears [_isDisconnected], the page stayed blank.
   ///
   /// That opens never overlap is what makes a single flag enough. Were they
   /// ever made concurrent — to hide the latency of three sequential round
@@ -138,8 +142,21 @@ class RemoteSession extends ChangeNotifier {
         _restartWanted = false;
         if (_disposed || !_visualsEnabled) return;
         try {
-          // Checked for teardown or a visual pause between each, and all three
-          // requests stay at rightNow so teardown cannot overtake an open.
+          // Checked for teardown or a visual pause between each. All three
+          // requests stay at rightNow; their defaults are foreground.
+          //
+          // For the subscribe that is correctness, not tidiness: the queue
+          // sorts by priority before arrival, so left at foreground it would
+          // be overtaken by the rightNow unsubscribe shutdown/pause sends. The
+          // device would be told to start pushing desktop status after being
+          // told to stop, and _stopRemote latches itself off at teardown, so
+          // nothing would ever unsubscribe it again. The same reasoning
+          // applies to the stream, which guiStopScreenStream undoes at
+          // rightNow. Equal-priority requests stay FIFO.
+          //
+          // desktopIsLocked has nothing that undoes it, so its priority only
+          // buys latency on a path the user is waiting out — but the three
+          // belong to one operation and are easier to reason about together.
           await _client.guiStartScreenStream(
             priority: FlipperRequestPriority.rightNow,
           );
@@ -232,8 +249,14 @@ class RemoteSession extends ChangeNotifier {
   void _onConnectionState(FlipperConnectionState state) {
     if (_disposed) return;
 
+    final inputChanged = _inputAvailable != state.connected;
+    _inputAvailable = state.connected;
+
     if (!state.connected) {
-      if (_isDisconnected) return;
+      if (_isDisconnected) {
+        if (inputChanged) _safeNotify();
+        return;
+      }
       _isDisconnected = true;
       final prev = _frameImage;
       _frameImage = null;
@@ -243,13 +266,11 @@ class RemoteSession extends ChangeNotifier {
       return;
     }
 
-    if (!_visualsEnabled) {
-      if (_isDisconnected) {
-        _isDisconnected = false;
-        _safeNotify();
-      }
-      return;
-    }
+    // Input availability follows the RPC link; visual connectivity deliberately
+    // does not. A reconnect while paused can accept wrist inputs, but the LED
+    // stays disconnected until a real framebuffer arrives after resume.
+    if (inputChanged) _safeNotify();
+    if (!_visualsEnabled) return;
 
     unawaited(_start());
   }
