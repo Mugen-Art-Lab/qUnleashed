@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'package:flipperlib/flipperlib.dart';
 import 'package:flutter/material.dart';
 
+import '../services/connection/ble_recovery.dart';
 import '../services/connection/device_info_watch.dart';
 import '../services/connection/foreground_service.dart';
 import '../services/connection/notification_service.dart';
@@ -30,6 +31,10 @@ void bootstrapAmbientServices() {
       'ble foreground service',
       () => BleForegroundService.instance.start(client),
     ),
+  );
+
+  unawaited(
+    _guard('ble recovery', () => BleRecoveryService.instance.start(client)),
   );
 
   // Answers GPS requests from custom firmware apps with the phone's location.
