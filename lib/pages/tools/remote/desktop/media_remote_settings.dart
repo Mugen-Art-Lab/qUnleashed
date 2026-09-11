@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../services/localization/l10n.dart';
+import '../../../../theme/theme.dart';
 import 'media_remote.dart';
 import 'models/models.dart';
 
@@ -16,6 +17,13 @@ Future<void> showMediaRemoteSettingsDialog(
     builder: (context) {
       return StatefulBuilder(
         builder: (context, setState) {
+          final colors = context.appColors;
+
+          Future<void> setEnabled(bool value) async {
+            await bridge.setEnabled(value);
+            if (context.mounted) setState(() {});
+          }
+
           Future<void> setMapping(
             MediaRemoteInput input,
             RemoteButton? button,
@@ -26,14 +34,9 @@ Future<void> showMediaRemoteSettingsDialog(
 
           Future<void> setAction(
             MediaRemoteInput input,
-            WristRemoteAction action,
+            WristRemoteAction nextAction,
           ) async {
-            await bridge.setActionFor(input, action);
-            if (context.mounted) setState(() {});
-          }
-
-          Future<void> setQueueWhileDisconnected(bool value) async {
-            await bridge.setQueueWhileDisconnected(value);
+            await bridge.setActionFor(input, nextAction);
             if (context.mounted) setState(() {});
           }
 
@@ -51,36 +54,52 @@ Future<void> showMediaRemoteSettingsDialog(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(context.l10n.wristRemoteMappingIntro),
+                    Text(
+                      context.l10n.wristRemoteMappingIntro,
+                      style: TextStyle(color: colors.dialogText),
+                    ),
                     const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            context.l10n.wristRemoteMappingTitle,
+                            style: TextStyle(
+                              color: colors.dialogText,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Switch(
+                          value: bridge.enabled,
+                          activeThumbColor: colors.accent,
+                          onChanged: setEnabled,
+                        ),
+                      ],
+                    ),
+                    const Divider(height: 28),
                     for (final input in MediaRemoteInput.values) ...[
                       _MappingRow(
                         input: input,
                         value: bridge.buttonFor(input),
                         action: bridge.actionFor(input),
                         onChanged: (button) => setMapping(input, button),
-                        onActionChanged: (action) => setAction(input, action),
+                        onActionChanged: (nextAction) =>
+                            setAction(input, nextAction),
                       ),
                       if (input != MediaRemoteInput.values.last)
                         const Divider(height: 20),
                     ],
-                    const Divider(height: 28),
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(context.l10n.wristRemoteQueueTitle),
-                      subtitle: Text(context.l10n.wristRemoteQueueSubtitle),
-                      value: bridge.queueWhileDisconnected,
-                      onChanged: setQueueWhileDisconnected,
-                    ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
                     Text(
                       context.l10n.wristRemoteHoldHelp,
-                      style: const TextStyle(fontSize: 12),
+                      style: TextStyle(color: colors.dialogMuted, fontSize: 12),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       context.l10n.wristRemoteVolumeNote,
-                      style: const TextStyle(fontSize: 12),
+                      style: TextStyle(color: colors.dialogMuted, fontSize: 12),
                     ),
                   ],
                 ),
@@ -120,12 +139,16 @@ class _MappingRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           _inputLabel(context, input),
-          style: const TextStyle(fontWeight: FontWeight.w600),
+          style: TextStyle(
+            color: colors.dialogText,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         const SizedBox(height: 8),
         Row(
@@ -157,10 +180,10 @@ class _MappingRow extends StatelessWidget {
                       if (next != null) onActionChanged(next);
                     },
               items: [
-                for (final action in WristRemoteAction.values)
+                for (final candidate in WristRemoteAction.values)
                   DropdownMenuItem(
-                    value: action,
-                    child: Text(_actionLabel(context, action)),
+                    value: candidate,
+                    child: Text(_actionLabel(context, candidate)),
                   ),
               ],
             ),
