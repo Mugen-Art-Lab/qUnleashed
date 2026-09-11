@@ -182,7 +182,10 @@ class MediaRemoteBridge {
         _handleTap(MediaRemoteInput.previous, MediaRemoteInput.doublePrevious);
       case 'ok':
       case 'playPause':
-        _handleTap(MediaRemoteInput.playPause, MediaRemoteInput.doublePlayPause);
+        _handleTap(
+          MediaRemoteInput.playPause,
+          MediaRemoteInput.doublePlayPause,
+        );
       case 'right':
       case 'next':
         _handleTap(MediaRemoteInput.next, MediaRemoteInput.doubleNext);
