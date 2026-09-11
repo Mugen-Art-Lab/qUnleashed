@@ -77,10 +77,7 @@ class _RemoteControlPageState extends State<RemoteControlPage>
     }
   }
 
-  void _onMediaRemoteButton(
-    RemoteButton button,
-    WristRemoteAction action,
-  ) {
+  void _onMediaRemoteButton(RemoteButton button, WristRemoteAction action) {
     if (_session.isDisconnected && !_mediaRemote.queueWhileDisconnected) {
       LogService.debug(
         '[WristRemote] dropped ${button.name}: Flipper disconnected',
