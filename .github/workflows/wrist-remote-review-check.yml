@@ -1,0 +1,140 @@
+name: Wrist Remote review check
+
+on:
+  push:
+    branches:
+      - wrist-remote-review-fix
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wrist-remote-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Add Wrist Remote review check'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: ./.github/actions/setup-flutter
+
+      - name: Stub Firebase Dart configuration
+        run: .github/scripts/stub_firebase_config.sh
+
+      - name: Stub Android Firebase configuration
+        shell: bash
+        run: |
+          cat > android/app/google-services.json <<'JSON'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "qunleashed-review-check",
+              "storage_bucket": "qunleashed-review-check.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+                  "android_client_info": {
+                    "package_name": "com.darkflippers.qunleashed"
+                  }
+                },
+                "api_key": [
+                  {"current_key": "review-placeholder-key"}
+                ],
+                "services": {
+                  "appinvite_service": {"other_platform_oauth_client": []}
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          JSON
+
+      - name: Remove obsolete queue localization
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('translations/app_en.arb')
+          text = path.read_text()
+          pattern = re.compile(
+              r'\n  "wristRemoteQueueTitle":.*?\n  "@wristRemoteQueueSubtitle": \{\n'
+              r'    "description": "Explanation under the Wrist Remote queue toggle\."\n'
+              r'  \},\n',
+              re.S,
+          )
+          text, count = pattern.subn('\n', text, count=1)
+          if count != 1:
+              raise SystemExit(f'expected one queue localization block, found {count}')
+          path.write_text(text)
+          PY
+
+      - name: Generate localization
+        run: flutter gen-l10n
+
+      - name: Check translation ownership
+        shell: bash
+        run: printf '%s\n' translations/app_en.arb | .github/scripts/check_translation_sources.sh
+
+      - name: Format Dart
+        run: dart format $(git ls-files '*.dart')
+
+      - name: Check formatting
+        run: .github/scripts/check_format.sh
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Build Android arm64 release APK
+        run: flutter build apk --release --target-platform android-arm64 --split-per-abi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: wrist-remote-review-arm64
+          path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Commit validated formatting and localization cleanup
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            lib/pages/tools/remote/desktop/media_remote.dart \
+            lib/pages/tools/remote/desktop/media_remote_settings.dart \
+            lib/pages/tools/remote/desktop/page.dart \
+            lib/pages/tools/remote/desktop/session.dart \
+            lib/pages/tools/remote/desktop/widgets/wide_body.dart \
+            test/media_remote_test.dart \
+            test/remote_session_pause_test.dart \
+            translations/app_en.arb
+          if git diff --cached --quiet; then
+            echo "No generated cleanup to commit."
+          else
+            git commit -m "Polish Wrist Remote after review"
+            git push
+          fi
