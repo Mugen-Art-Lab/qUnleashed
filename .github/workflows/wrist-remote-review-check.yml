@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   validate:
-    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Add Wrist Remote review check'
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Add Wrist Remote enable copy check'
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -67,25 +67,35 @@ jobs:
           }
           JSON
 
-      - name: Remove obsolete queue localization
+      - name: Add Wrist Remote enable localization
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
           path = Path('translations/app_en.arb')
           text = path.read_text()
-          pattern = re.compile(
-              r'\n  "wristRemoteQueueTitle":.*?\n  "@wristRemoteQueueSubtitle": \{\n'
-              r'    "description": "Explanation under the Wrist Remote queue toggle\."\n'
-              r'  \},\n',
-              re.S,
-          )
-          text, count = pattern.subn('\n', text, count=1)
-          if count != 1:
-              raise SystemExit(f'expected one queue localization block, found {count}')
-          path.write_text(text)
+          if '"wristRemoteEnabledTitle"' in text:
+              raise SystemExit('enable localization already present')
+          marker = '''  "wristRemoteMappingIntro": "Choose which Flipper button each media gesture sends. Double-tap rows can be left unassigned for instant single-tap response.",
+          "@wristRemoteMappingIntro": {
+            "description": "Introduction at the top of the Wrist Remote mapping dialog."
+          },
+          '''
+          addition = '''
+          "wristRemoteEnabledTitle": "Enable Wrist Remote",
+          "@wristRemoteEnabledTitle": {
+            "description": "Toggle that enables or disables the Android media session used by Wrist Remote."
+          },
+
+          "wristRemoteEnabledSubtitle": "Off by default. Turn on to route media controls and volume buttons to the Flipper while Remote Control is open.",
+          "@wristRemoteEnabledSubtitle": {
+            "description": "Explanation under the Wrist Remote master enable toggle."
+          },
+          '''
+          if marker not in text:
+              raise SystemExit('Wrist Remote intro marker not found')
+          path.write_text(text.replace(marker, marker + addition, 1))
           PY
 
       - name: Generate localization
@@ -135,6 +145,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No generated cleanup to commit."
           else
-            git commit -m "Polish Wrist Remote after review"
+            git commit -m "Add Wrist Remote enable localization"
             git push
           fi
