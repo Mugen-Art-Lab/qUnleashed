@@ -23,6 +23,11 @@ Future<void> showMediaRemoteSettingsDialog(
             if (context.mounted) setState(() {});
           }
 
+          Future<void> setHold(MediaRemoteInput input, bool hold) async {
+            await bridge.setHoldFor(input, hold);
+            if (context.mounted) setState(() {});
+          }
+
           Future<void> setQueueWhileDisconnected(bool value) async {
             await bridge.setQueueWhileDisconnected(value);
             if (context.mounted) setState(() {});
@@ -51,7 +56,9 @@ Future<void> showMediaRemoteSettingsDialog(
                       _MappingRow(
                         input: input,
                         value: bridge.buttonFor(input),
+                        hold: bridge.holdFor(input),
                         onChanged: (button) => setMapping(input, button),
+                        onHoldChanged: (hold) => setHold(input, hold),
                       ),
                       if (input != MediaRemoteInput.values.last)
                         const Divider(height: 20),
@@ -70,6 +77,12 @@ Future<void> showMediaRemoteSettingsDialog(
                       onChanged: setQueueWhileDisconnected,
                     ),
                     const SizedBox(height: 8),
+                    const Text(
+                      'Hold (beta) keeps the selected Flipper button pressed '
+                      'for 800 ms.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 6),
                     const Text(
                       'Note: some bands change Android system volume directly '
                       'instead of sending Volume +/- to the media session.',
@@ -97,35 +110,56 @@ class _MappingRow extends StatelessWidget {
   const _MappingRow({
     required this.input,
     required this.value,
+    required this.hold,
     required this.onChanged,
+    required this.onHoldChanged,
   });
 
   final MediaRemoteInput input;
   final RemoteButton value;
+  final bool hold;
   final ValueChanged<RemoteButton> onChanged;
+  final ValueChanged<bool> onHoldChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: Text(
-            _inputLabel(input),
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
+        Text(
+          _inputLabel(input),
+          style: const TextStyle(fontWeight: FontWeight.w600),
         ),
-        const SizedBox(width: 12),
-        DropdownButton<RemoteButton>(
-          value: value,
-          onChanged: (button) {
-            if (button != null) onChanged(button);
-          },
-          items: [
-            for (final button in RemoteButton.values)
-              DropdownMenuItem(
-                value: button,
-                child: Text(_buttonLabel(button)),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButton<RemoteButton>(
+                isExpanded: true,
+                value: value,
+                onChanged: (button) {
+                  if (button != null) onChanged(button);
+                },
+                items: [
+                  for (final button in RemoteButton.values)
+                    DropdownMenuItem(
+                      value: button,
+                      child: Text(_buttonLabel(button)),
+                    ),
+                ],
               ),
+            ),
+            const SizedBox(width: 12),
+            DropdownButton<bool>(
+              value: hold,
+              onChanged: (value) {
+                if (value != null) onHoldChanged(value);
+              },
+              items: const [
+                DropdownMenuItem(value: false, child: Text('Tap')),
+                DropdownMenuItem(value: true, child: Text('Hold (beta)')),
+              ],
+            ),
           ],
         ),
       ],
