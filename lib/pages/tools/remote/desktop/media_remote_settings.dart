@@ -23,8 +23,11 @@ Future<void> showMediaRemoteSettingsDialog(
             if (context.mounted) setState(() {});
           }
 
-          Future<void> setHold(MediaRemoteInput input, bool hold) async {
-            await bridge.setHoldFor(input, hold);
+          Future<void> setAction(
+            MediaRemoteInput input,
+            WristRemoteAction action,
+          ) async {
+            await bridge.setActionFor(input, action);
             if (context.mounted) setState(() {});
           }
 
@@ -57,9 +60,9 @@ Future<void> showMediaRemoteSettingsDialog(
                       _MappingRow(
                         input: input,
                         value: bridge.buttonFor(input),
-                        hold: bridge.holdFor(input),
+                        action: bridge.actionFor(input),
                         onChanged: (button) => setMapping(input, button),
-                        onHoldChanged: (hold) => setHold(input, hold),
+                        onActionChanged: (action) => setAction(input, action),
                       ),
                       if (input != MediaRemoteInput.values.last)
                         const Divider(height: 20),
@@ -79,9 +82,10 @@ Future<void> showMediaRemoteSettingsDialog(
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'Hold (beta) keeps the selected Flipper button pressed '
-                      'for 800 ms. Double taps use a 400 ms gesture window only '
-                      'when the matching double-tap action is assigned.',
+                      'Hold actions keep the selected Flipper button pressed '
+                      'for 1, 2 or 3 seconds. Double taps use a 400 ms gesture '
+                      'window only when the matching double-tap action is '
+                      'assigned.',
                       style: TextStyle(fontSize: 12),
                     ),
                     const SizedBox(height: 6),
@@ -112,16 +116,16 @@ class _MappingRow extends StatelessWidget {
   const _MappingRow({
     required this.input,
     required this.value,
-    required this.hold,
+    required this.action,
     required this.onChanged,
-    required this.onHoldChanged,
+    required this.onActionChanged,
   });
 
   final MediaRemoteInput input;
   final RemoteButton? value;
-  final bool hold;
+  final WristRemoteAction action;
   final ValueChanged<RemoteButton?> onChanged;
-  final ValueChanged<bool> onHoldChanged;
+  final ValueChanged<WristRemoteAction> onActionChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -154,16 +158,30 @@ class _MappingRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
-            DropdownButton<bool>(
-              value: hold,
+            DropdownButton<WristRemoteAction>(
+              value: action,
               onChanged: value == null
                   ? null
                   : (next) {
-                      if (next != null) onHoldChanged(next);
+                      if (next != null) onActionChanged(next);
                     },
               items: const [
-                DropdownMenuItem(value: false, child: Text('Tap')),
-                DropdownMenuItem(value: true, child: Text('Hold (beta)')),
+                DropdownMenuItem(
+                  value: WristRemoteAction.tap,
+                  child: Text('Tap'),
+                ),
+                DropdownMenuItem(
+                  value: WristRemoteAction.hold1s,
+                  child: Text('Hold 1 s'),
+                ),
+                DropdownMenuItem(
+                  value: WristRemoteAction.hold2s,
+                  child: Text('Hold 2 s'),
+                ),
+                DropdownMenuItem(
+                  value: WristRemoteAction.hold3s,
+                  child: Text('Hold 3 s'),
+                ),
               ],
             ),
           ],
