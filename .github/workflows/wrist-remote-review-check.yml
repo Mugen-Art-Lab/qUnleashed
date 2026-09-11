@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   validate:
-    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Fix Wrist Remote enable localization check'
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Fix review-check workflow syntax'
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -78,18 +78,16 @@ jobs:
           if '"wristRemoteEnabledTitle"' in text:
               raise SystemExit('enable localization already present')
           marker = '\n  "wristRemoteHoldHelp":'
-          addition = '''
-
-  "wristRemoteEnabledTitle": "Enable Wrist Remote",
-  "@wristRemoteEnabledTitle": {
-    "description": "Toggle that enables or disables the Android media session used by Wrist Remote."
-  },
-
-  "wristRemoteEnabledSubtitle": "Off by default. Turn on to route media controls and volume buttons to the Flipper while Remote Control is open.",
-  "@wristRemoteEnabledSubtitle": {
-    "description": "Explanation under the Wrist Remote master enable toggle."
-  },
-'''
+          addition = (
+              '\n  "wristRemoteEnabledTitle": "Enable Wrist Remote",\n'
+              '  "@wristRemoteEnabledTitle": {\n'
+              '    "description": "Toggle that enables or disables the Android media session used by Wrist Remote."\n'
+              '  },\n\n'
+              '  "wristRemoteEnabledSubtitle": "Off by default. Turn on to route media controls and volume buttons to the Flipper while Remote Control is open.",\n'
+              '  "@wristRemoteEnabledSubtitle": {\n'
+              '    "description": "Explanation under the Wrist Remote master enable toggle."\n'
+              '  },\n'
+          )
           if marker not in text:
               raise SystemExit('Wrist Remote hold-help marker not found')
           path.write_text(text.replace(marker, addition + marker, 1))
