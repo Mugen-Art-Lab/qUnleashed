@@ -106,28 +106,31 @@ void main() {
     },
   );
 
-  test('pause during an in-flight open resumes with one fresh stream', () async {
-    final client = _PauseFakeClient()
-      ..connected = true
-      ..startGate = Completer<void>();
-    final session = RemoteSession(client: client);
-    addTearDown(session.dispose);
+  test(
+    'pause during an in-flight open resumes with one fresh stream',
+    () async {
+      final client = _PauseFakeClient()
+        ..connected = true
+        ..startGate = Completer<void>();
+      final session = RemoteSession(client: client);
+      addTearDown(session.dispose);
 
-    await Future<void>.delayed(Duration.zero);
-    expect(client.startStreamCalls, 1);
+      await Future<void>.delayed(Duration.zero);
+      expect(client.startStreamCalls, 1);
 
-    await session.pauseVisuals();
-    client.startGate!.complete();
-    client.startGate = null;
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+      await session.pauseVisuals();
+      client.startGate!.complete();
+      client.startGate = null;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
 
-    await session.resumeVisuals();
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+      await session.resumeVisuals();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
 
-    expect(
-      client.startStreamCalls,
-      2,
-      reason: 'the paused in-flight open is abandoned and resume opens once',
-    );
-  });
+      expect(
+        client.startStreamCalls,
+        2,
+        reason: 'the paused in-flight open is abandoned and resume opens once',
+      );
+    },
+  );
 }

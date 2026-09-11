@@ -65,7 +65,11 @@ void main() {
     );
 
     await bridge.handleCallForTesting(const MethodCall('button', 'playPause'));
-    expect(events, isEmpty, reason: 'the assigned double gesture opens a window');
+    expect(
+      events,
+      isEmpty,
+      reason: 'the assigned double gesture opens a window',
+    );
 
     await Future<void>.delayed(
       wristRemoteDoubleTapDuration + const Duration(milliseconds: 30),
@@ -78,36 +82,39 @@ void main() {
     expect(events, [(RemoteButton.back, WristRemoteAction.tap)]);
   });
 
-  test('start stopped during preference load never creates MediaSession', () async {
-    SharedPreferences.setMockInitialValues(<String, Object>{
-      'remote.media.enabled': true,
-    });
-    final preferences = await SharedPreferences.getInstance();
-    final loadGate = Completer<SharedPreferences>();
-    final nativeCalls = <String>[];
-    const channel = MethodChannel('qunleashed/media_remote');
-    final messenger =
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    messenger.setMockMethodCallHandler(channel, (call) async {
-      nativeCalls.add(call.method);
-      return null;
-    });
-    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+  test(
+    'start stopped during preference load never creates MediaSession',
+    () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'remote.media.enabled': true,
+      });
+      final preferences = await SharedPreferences.getInstance();
+      final loadGate = Completer<SharedPreferences>();
+      final nativeCalls = <String>[];
+      const channel = MethodChannel('qunleashed/media_remote');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        nativeCalls.add(call.method);
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
-    final bridge = MediaRemoteBridge(
-      onButton: (_, _) {},
-      supportedOverride: true,
-      preferencesLoader: () => loadGate.future,
-    );
+      final bridge = MediaRemoteBridge(
+        onButton: (_, _) {},
+        supportedOverride: true,
+        preferencesLoader: () => loadGate.future,
+      );
 
-    final starting = bridge.start();
-    await Future<void>.delayed(Duration.zero);
-    await bridge.stop();
-    loadGate.complete(preferences);
-    await starting;
+      final starting = bridge.start();
+      await Future<void>.delayed(Duration.zero);
+      await bridge.stop();
+      loadGate.complete(preferences);
+      await starting;
 
-    expect(nativeCalls, isEmpty);
-  });
+      expect(nativeCalls, isEmpty);
+    },
+  );
 
   test('MediaSession is opt-in and follows the enabled setting', () async {
     final nativeCalls = <String>[];
@@ -153,10 +160,7 @@ void main() {
 
     expect(bridge.enabled, isTrue);
     expect(bridge.buttonFor(MediaRemoteInput.previous), RemoteButton.left);
-    expect(
-      bridge.actionFor(MediaRemoteInput.previous),
-      WristRemoteAction.tap,
-    );
+    expect(bridge.actionFor(MediaRemoteInput.previous), WristRemoteAction.tap);
     expect(bridge.buttonFor(MediaRemoteInput.doublePlayPause), isNull);
   });
 }

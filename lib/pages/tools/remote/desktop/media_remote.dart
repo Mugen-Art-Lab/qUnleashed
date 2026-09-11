@@ -272,9 +272,7 @@ class MediaRemoteBridge {
       case 'volumeDown':
         _dispatch(MediaRemoteInput.volumeDown);
       default:
-        LogService.warn(
-          '[WristRemote] unknown media input: ${call.arguments}',
-        );
+        LogService.warn('[WristRemote] unknown media input: ${call.arguments}');
     }
     return null;
   }

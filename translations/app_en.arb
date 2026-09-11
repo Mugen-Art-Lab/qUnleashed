@@ -4848,15 +4848,6 @@
     "description": "Introduction at the top of the Wrist Remote mapping dialog."
   },
 
-  "wristRemoteQueueTitle": "Queue wrist inputs while disconnected",
-  "@wristRemoteQueueTitle": {
-    "description": "Toggle that allows Wrist Remote commands to wait through a BLE reconnect."
-  },
-
-  "wristRemoteQueueSubtitle": "Off drops commands during BLE recovery. On may replay them after reconnect.",
-  "@wristRemoteQueueSubtitle": {
-    "description": "Explanation under the Wrist Remote queue toggle."
-  },
 
   "wristRemoteHoldHelp": "Hold actions keep the selected Flipper button pressed for 1, 2 or 3 seconds. Double taps use a 400 ms gesture window only when the matching double-tap action is assigned.",
   "@wristRemoteHoldHelp": {
