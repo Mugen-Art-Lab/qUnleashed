@@ -59,8 +59,6 @@ class MediaRemoteBridge {
 
   static const String _prefPrefix = 'remote.media.';
   static const String _enabledPref = '${_prefPrefix}enabled';
-  static const String _queueWhileDisconnectedPref =
-      '${_prefPrefix}queueWhileDisconnected';
   static const String _notAssignedValue = '__none__';
 
   static const Map<MediaRemoteInput, RemoteButton?> _defaults = {
@@ -86,11 +84,9 @@ class MediaRemoteBridge {
   bool _started = false;
   bool _nativeActive = false;
   bool _enabled = false;
-  bool _queueWhileDisconnected = false;
 
   bool get supported => _supportedOverride ?? Platform.isAndroid;
   bool get enabled => _enabled;
-  bool get queueWhileDisconnected => _queueWhileDisconnected;
 
   RemoteButton? buttonFor(MediaRemoteInput input) => _mapping[input];
 
@@ -122,12 +118,7 @@ class MediaRemoteBridge {
     }
 
     _enabled = preferences.getBool(_enabledPref) ?? false;
-    _queueWhileDisconnected =
-        preferences.getBool(_queueWhileDisconnectedPref) ?? false;
-    LogService.debug(
-      '[WristRemote] mappings loaded; enabled=$_enabled; '
-      'queueWhileDisconnected=$_queueWhileDisconnected',
-    );
+    LogService.debug('[WristRemote] mappings loaded; enabled=$_enabled');
   }
 
   Future<void> setButtonFor(
@@ -168,17 +159,6 @@ class MediaRemoteBridge {
     await _syncNativeState();
   }
 
-  Future<void> setQueueWhileDisconnected(bool value) async {
-    await ensureLoaded();
-    if (_queueWhileDisconnected == value) return;
-    await _write(
-      _preferences!.setBool(_queueWhileDisconnectedPref, value),
-      _queueWhileDisconnectedPref,
-    );
-    _queueWhileDisconnected = value;
-    LogService.info('[WristRemote] queue while disconnected -> $value');
-  }
-
   Future<void> resetMappings() async {
     await ensureLoaded();
     _cancelPendingTaps();
@@ -188,7 +168,6 @@ class MediaRemoteBridge {
         _preferences!.remove('$_prefPrefix${input.name}'),
         _preferences!.remove('$_prefPrefix${input.name}.action'),
       ],
-      _preferences!.remove(_queueWhileDisconnectedPref),
     ];
     final results = await Future.wait(writes);
     if (results.any((ok) => !ok)) {
@@ -199,7 +178,6 @@ class MediaRemoteBridge {
       ..clear()
       ..addAll(_defaults);
     _actionMapping.clear();
-    _queueWhileDisconnected = false;
     LogService.debug('[WristRemote] mappings reset');
   }
 
