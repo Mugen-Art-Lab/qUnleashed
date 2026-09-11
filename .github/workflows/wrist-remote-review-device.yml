@@ -1,0 +1,104 @@
+name: Wrist Remote review device APK
+
+on:
+  push:
+    branches:
+      - wrist-remote-review-device
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wrist-remote-review-device-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: ./.github/actions/setup-flutter
+
+      - name: Stub Firebase Dart configuration
+        run: .github/scripts/stub_firebase_config.sh
+
+      - name: Stub Android Firebase configuration
+        shell: bash
+        run: |
+          cat > android/app/google-services.json <<'JSON'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "qunleashed-review-device",
+              "storage_bucket": "qunleashed-review-device.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+                  "android_client_info": {
+                    "package_name": "com.darkflippers.qunleashed"
+                  }
+                },
+                "api_key": [
+                  {"current_key": "review-placeholder-key"}
+                ],
+                "services": {
+                  "appinvite_service": {"other_platform_oauth_client": []}
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          JSON
+
+      - name: Generate localization
+        run: flutter gen-l10n
+
+      - name: Check formatting
+        run: .github/scripts/check_format.sh
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Prepare Mugen test signing
+        shell: bash
+        run: |
+          base64 --decode .github/keys/mugen-dev.keystore.b64 > android/mugen-dev.keystore
+          cat > android/key.properties <<'PROPS'
+          storeFile=mugen-dev.keystore
+          storePassword=mugen-dev
+          keyAlias=mugen-dev
+          keyPassword=mugen-dev
+          PROPS
+
+      - name: Build arm64 release APK
+        run: >-
+          flutter build apk --release --target-platform android-arm64 --split-per-abi
+          --dart-define=QLOG=true
+          --dart-define=QLOG_LEVEL=debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: qUnleashed-wrist-remote-review-device-arm64
+          path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          if-no-files-found: error
+          retention-days: 7
