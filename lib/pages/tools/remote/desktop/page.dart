@@ -30,14 +30,10 @@ class RemoteControlPage extends StatefulWidget {
 
 class _RemoteControlPageState extends State<RemoteControlPage>
     with WidgetsBindingObserver {
-  static const int _maxQueuedWristInputs = 8;
-  static const Duration _queuedWristInputMaxAge = Duration(seconds: 5);
-
   late final RemoteSession _session;
   late final GifRecorder _gifRecorder;
   late final MediaRemoteBridge _mediaRemote;
 
-  final List<_QueuedWristInput> _queuedWristInputs = [];
   bool _savingScreenshot = false;
   bool _closing = false;
 
@@ -59,7 +55,6 @@ class _RemoteControlPageState extends State<RemoteControlPage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _recordingTick?.cancel();
-    _queuedWristInputs.clear();
     unawaited(_mediaRemote.stop());
     _session
       ..removeListener(_onSessionChanged)
@@ -84,54 +79,12 @@ class _RemoteControlPageState extends State<RemoteControlPage>
 
   void _onMediaRemoteButton(RemoteButton button, WristRemoteAction action) {
     if (!_session.inputAvailable) {
-      if (_mediaRemote.queueWhileDisconnected) {
-        _queueWristInput(button, action);
-      } else {
-        LogService.debug(
-          '[WristRemote] dropped ${button.name}: Flipper disconnected',
-        );
-      }
+      LogService.debug(
+        '[WristRemote] dropped ${button.name}: Flipper disconnected',
+      );
       return;
     }
     _dispatchMediaRemoteButton(button, action);
-  }
-
-  void _queueWristInput(RemoteButton button, WristRemoteAction action) {
-    final now = DateTime.now();
-    _queuedWristInputs.removeWhere(
-      (item) => now.difference(item.queuedAt) > _queuedWristInputMaxAge,
-    );
-    if (_queuedWristInputs.length >= _maxQueuedWristInputs) {
-      _queuedWristInputs.removeAt(0);
-    }
-    _queuedWristInputs.add(
-      _QueuedWristInput(button: button, action: action, queuedAt: now),
-    );
-    LogService.debug(
-      '[WristRemote] queued ${button.name}; pending=${_queuedWristInputs.length}',
-    );
-  }
-
-  void _flushQueuedWristInputs() {
-    if (!_session.inputAvailable || _queuedWristInputs.isEmpty) return;
-
-    final now = DateTime.now();
-    final pending = [
-      for (final item in _queuedWristInputs)
-        if (now.difference(item.queuedAt) <= _queuedWristInputMaxAge) item,
-    ];
-    final expired = _queuedWristInputs.length - pending.length;
-    _queuedWristInputs.clear();
-
-    if (expired > 0) {
-      LogService.debug('[WristRemote] dropped $expired expired queued input(s)');
-    }
-    if (pending.isEmpty) return;
-
-    LogService.debug('[WristRemote] replaying ${pending.length} queued input(s)');
-    for (final item in pending) {
-      _dispatchMediaRemoteButton(item.button, item.action);
-    }
   }
 
   void _dispatchMediaRemoteButton(
@@ -166,7 +119,6 @@ class _RemoteControlPageState extends State<RemoteControlPage>
   }
 
   void _onSessionChanged() {
-    _flushQueuedWristInputs();
     if (!mounted) return;
     setState(() {});
   }
@@ -292,7 +244,6 @@ class _RemoteControlPageState extends State<RemoteControlPage>
 
   Future<void> _openWristRemoteSettings() async {
     await showMediaRemoteSettingsDialog(context, _mediaRemote);
-    if (!_mediaRemote.queueWhileDisconnected) _queuedWristInputs.clear();
   }
 
   Future<void> _copyScreenshot() async {
@@ -473,16 +424,4 @@ class _RemoteControlPageState extends State<RemoteControlPage>
       ),
     );
   }
-}
-
-class _QueuedWristInput {
-  const _QueuedWristInput({
-    required this.button,
-    required this.action,
-    required this.queuedAt,
-  });
-
-  final RemoteButton button;
-  final WristRemoteAction action;
-  final DateTime queuedAt;
 }
