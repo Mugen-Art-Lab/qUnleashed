@@ -62,12 +62,25 @@ Future<void> showMediaRemoteSettingsDialog(
                     Row(
                       children: [
                         Expanded(
-                          child: Text(
-                            context.l10n.wristRemoteMappingTitle,
-                            style: TextStyle(
-                              color: colors.dialogText,
-                              fontWeight: FontWeight.w600,
-                            ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                context.l10n.wristRemoteEnabledTitle,
+                                style: TextStyle(
+                                  color: colors.dialogText,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                context.l10n.wristRemoteEnabledSubtitle,
+                                style: TextStyle(
+                                  color: colors.dialogMuted,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         const SizedBox(width: 12),
