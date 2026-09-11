@@ -24,8 +24,9 @@ import '../logging.dart';
 /// be started while the app is in the foreground — which is exactly when a
 /// connection is normally established — and then it survives backgrounding on
 /// its own. We never try to start it during a background reconnect (that throws
-/// and the link stays unprotected); instead we record the desired state and
-/// start it the moment the app next returns to the foreground.
+/// and the link stays unprotected); instead we keep an already-running service
+/// alive for the recovery window and defer a missing-service start until the app
+/// returns to the foreground.
 ///
 /// Android-only. A no-op on every other platform (desktop processes are not
 /// throttled; iOS background BLE uses CoreBluetooth state restoration instead).
@@ -38,9 +39,11 @@ class BleForegroundService with WidgetsBindingObserver {
 
   bool _started = false;
   bool _initialized = false;
-  // The desired state derived from the connection lifecycle: true while a
-  // session is live or being (re)established.
+  // The desired state derived from the connection lifecycle.
   bool _wantRunning = false;
+  // App-layer BLE recovery keeps foreground protection alive between the
+  // library's terminal disconnect and a later fresh-session reconnect.
+  bool _recoveryActive = false;
   String _deviceName = 'Flipper Zero';
   // Whether the app is currently in the foreground. The FGS can only be started
   // while this is true.
@@ -55,6 +58,8 @@ class BleForegroundService with WidgetsBindingObserver {
   bool _askedBatteryExemption = false;
 
   StreamSubscription<FlipperConnectionState>? _sub;
+
+  bool get _shouldRun => _wantRunning || _recoveryActive;
 
   Future<void> start(FlipperClient client) async {
     if (!Platform.isAndroid || _started) return;
@@ -72,6 +77,18 @@ class BleForegroundService with WidgetsBindingObserver {
     }
   }
 
+  /// Holds an already-running BLE foreground service across app-layer recovery.
+  ///
+  /// Android may reject a brand-new FGS start while the app is backgrounded, so
+  /// the important part is preventing the truthful connected-device service
+  /// from being torn down during the retry window in the first place.
+  void setRecoveryActive(bool active) {
+    if (!Platform.isAndroid || _recoveryActive == active) return;
+    _recoveryActive = active;
+    LogService.debug('[ForegroundService] recovery hold -> $active');
+    _sync();
+  }
+
   void stop() {
     if (!_started) return;
     _started = false;
@@ -79,6 +96,7 @@ class BleForegroundService with WidgetsBindingObserver {
     _sub?.cancel();
     _sub = null;
     _wantRunning = false;
+    _recoveryActive = false;
     _sync();
   }
 
@@ -92,10 +110,8 @@ class BleForegroundService with WidgetsBindingObserver {
   }
 
   void _onState(FlipperConnectionState state) {
-    // Keep the process pinned for the whole session, including the reconnect
-    // window where the screen may already be off. Starting as early as
-    // `connecting` ensures the service comes up while the user is still in the
-    // foreground initiating the connection.
+    // flipperlib owns the immediate reconnect window. App-layer recovery holds
+    // the service separately after that window ends.
     _wantRunning = state.connected || state.connecting || state.reconnecting;
     if (state.device?.name case final name? when name.isNotEmpty) {
       _deviceName = name;
@@ -103,15 +119,15 @@ class BleForegroundService with WidgetsBindingObserver {
     _sync();
   }
 
-  // Reconciles the actual service state with [_wantRunning]. Starts only while
-  // foregrounded (Android forbids background FGS starts); a desired start while
-  // backgrounded is deferred until didChangeAppLifecycleState sees resume.
+  // Reconciles the actual service state with [_shouldRun]. Starts only while
+  // foregrounded (Android forbids background FGS starts); an already-running
+  // service is deliberately retained while recovery is active in background.
   void _sync() {
-    if (_wantRunning && _foreground && !_serviceRunning) {
+    if (_shouldRun && _foreground && !_serviceRunning) {
       _enqueue(_startService);
-    } else if (!_wantRunning && _serviceRunning) {
+    } else if (!_shouldRun && _serviceRunning) {
       _enqueue(_stopService);
-    } else if (_wantRunning && _serviceRunning) {
+    } else if (_shouldRun && _serviceRunning) {
       _enqueue(_updateNotification);
     }
   }
@@ -133,10 +149,12 @@ class BleForegroundService with WidgetsBindingObserver {
         channelName: l10n.notificationChannelBackgroundLink,
         channelDescription: l10n.notificationChannelBackgroundLinkDescription,
         // LOW keeps the notification quiet (no sound/vibration/heads-up) while
-        // still being a valid foreground-service notification.
+        // still being a valid foreground-service notification. SECRET keeps it
+        // off secure lock screens while preserving the required notification.
         channelImportance: NotificationChannelImportance.LOW,
         priority: NotificationPriority.LOW,
         onlyAlertOnce: true,
+        visibility: NotificationVisibility.VISIBILITY_SECRET,
       ),
       iosNotificationOptions: const IOSNotificationOptions(),
       // No periodic task handler: the service exists only to elevate the
@@ -157,7 +175,7 @@ class BleForegroundService with WidgetsBindingObserver {
 
   Future<void> _startService() async {
     // Re-check under the serialized op: state may have changed while queued.
-    if (_serviceRunning || !_wantRunning || !_foreground) return;
+    if (_serviceRunning || !_shouldRun || !_foreground) return;
     _ensureInitialized();
 
     // Android 13+ needs runtime notification permission for the foreground
@@ -212,7 +230,7 @@ class BleForegroundService with WidgetsBindingObserver {
   }
 
   Future<void> _updateNotification() async {
-    if (!_serviceRunning) return;
+    if (!_serviceRunning || !_shouldRun) return;
     try {
       await FlutterForegroundTask.updateService(
         notificationTitle: l10n.notificationBackgroundLinkTitle(_deviceName),
@@ -224,7 +242,10 @@ class BleForegroundService with WidgetsBindingObserver {
   }
 
   Future<void> _stopService() async {
-    if (!_serviceRunning) return;
+    // Recovery may have become active after this stop was queued. Re-check the
+    // desired state here so an old disconnect event cannot tear protection down
+    // underneath the retry loop.
+    if (!_serviceRunning || _shouldRun) return;
     _serviceRunning = false;
     final result = await FlutterForegroundTask.stopService();
     if (result is ServiceRequestFailure) {
