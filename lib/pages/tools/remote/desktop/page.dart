@@ -77,14 +77,28 @@ class _RemoteControlPageState extends State<RemoteControlPage>
     }
   }
 
-  void _onMediaRemoteButton(RemoteButton button) {
+  void _onMediaRemoteButton(RemoteButton button, bool hold) {
     if (_session.isDisconnected && !_mediaRemote.queueWhileDisconnected) {
       LogService.debug(
         '[WristRemote] dropped ${button.name}: Flipper disconnected',
       );
       return;
     }
+    if (hold) {
+      unawaited(_holdMediaRemoteButton(button));
+      return;
+    }
     unawaited(_session.press(button));
+  }
+
+  Future<void> _holdMediaRemoteButton(RemoteButton button) async {
+    LogService.debug(
+      '[WristRemote] holding ${button.name} for '
+      '${wristRemoteHoldDuration.inMilliseconds} ms',
+    );
+    await _session.beginHold(button);
+    await Future<void>.delayed(wristRemoteHoldDuration);
+    await _session.endHold(button);
   }
 
   void _syncRecordingFlag() {
