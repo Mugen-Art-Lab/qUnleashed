@@ -17,6 +17,9 @@ enum MediaRemoteInput {
   volumeDown,
 }
 
+/// Automatic hold duration used by Wrist Remote hold mappings.
+const Duration wristRemoteHoldDuration = Duration(milliseconds: 800);
+
 /// Dart half of the Android MediaSession bridge used by Wrist Remote.
 ///
 /// It is intentionally page-scoped from the user's point of view:
@@ -44,8 +47,9 @@ class MediaRemoteBridge {
     MediaRemoteInput.volumeDown: RemoteButton.down,
   };
 
-  final void Function(RemoteButton button) onButton;
+  final void Function(RemoteButton button, bool hold) onButton;
   final Map<MediaRemoteInput, RemoteButton> _mapping = {..._defaults};
+  final Map<MediaRemoteInput, bool> _holdMapping = {};
 
   SharedPreferences? _preferences;
   bool _loaded = false;
@@ -58,6 +62,8 @@ class MediaRemoteBridge {
   RemoteButton buttonFor(MediaRemoteInput input) =>
       _mapping[input] ?? _defaults[input]!;
 
+  bool holdFor(MediaRemoteInput input) => _holdMapping[input] ?? false;
+
   Future<void> ensureLoaded() async {
     if (_loaded) return;
     final preferences = await SharedPreferences.getInstance();
@@ -65,9 +71,12 @@ class MediaRemoteBridge {
 
     for (final input in MediaRemoteInput.values) {
       final stored = preferences.getString('$_prefPrefix${input.name}');
-      if (stored == null) continue;
-      final parsed = _buttonNamed(stored);
-      if (parsed != null) _mapping[input] = parsed;
+      if (stored != null) {
+        final parsed = _buttonNamed(stored);
+        if (parsed != null) _mapping[input] = parsed;
+      }
+      _holdMapping[input] =
+          preferences.getBool('$_prefPrefix${input.name}.hold') ?? false;
     }
     _queueWhileDisconnected =
         preferences.getBool(_queueWhileDisconnectedPref) ?? false;
@@ -85,6 +94,15 @@ class MediaRemoteBridge {
     LogService.debug('[WristRemote] mapping ${input.name} -> ${button.name}');
   }
 
+  Future<void> setHoldFor(MediaRemoteInput input, bool hold) async {
+    await ensureLoaded();
+    _holdMapping[input] = hold;
+    await _preferences!.setBool('$_prefPrefix${input.name}.hold', hold);
+    LogService.debug(
+      '[WristRemote] mapping ${input.name} hold -> $hold',
+    );
+  }
+
   Future<void> setQueueWhileDisconnected(bool value) async {
     await ensureLoaded();
     _queueWhileDisconnected = value;
@@ -97,9 +115,11 @@ class MediaRemoteBridge {
     _mapping
       ..clear()
       ..addAll(_defaults);
+    _holdMapping.clear();
     _queueWhileDisconnected = false;
     for (final input in MediaRemoteInput.values) {
       await _preferences!.remove('$_prefPrefix${input.name}');
+      await _preferences!.remove('$_prefPrefix${input.name}.hold');
     }
     await _preferences!.remove(_queueWhileDisconnectedPref);
     LogService.debug('[WristRemote] mappings reset');
@@ -157,8 +177,12 @@ class MediaRemoteBridge {
     };
     if (input != null) {
       final button = buttonFor(input);
-      LogService.debug('[WristRemote] input ${input.name} -> ${button.name}');
-      onButton(button);
+      final hold = holdFor(input);
+      LogService.debug(
+        '[WristRemote] input ${input.name} -> ${button.name}'
+        '${hold ? ' (hold)' : ''}',
+      );
+      onButton(button, hold);
     }
     return null;
   }
