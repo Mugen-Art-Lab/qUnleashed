@@ -77,27 +77,33 @@ class _RemoteControlPageState extends State<RemoteControlPage>
     }
   }
 
-  void _onMediaRemoteButton(RemoteButton button, bool hold) {
+  void _onMediaRemoteButton(
+    RemoteButton button,
+    WristRemoteAction action,
+  ) {
     if (_session.isDisconnected && !_mediaRemote.queueWhileDisconnected) {
       LogService.debug(
         '[WristRemote] dropped ${button.name}: Flipper disconnected',
       );
       return;
     }
-    if (hold) {
-      unawaited(_holdMediaRemoteButton(button));
+    if (action.isHold) {
+      unawaited(_holdMediaRemoteButton(button, action.duration));
       return;
     }
     unawaited(_session.press(button));
   }
 
-  Future<void> _holdMediaRemoteButton(RemoteButton button) async {
+  Future<void> _holdMediaRemoteButton(
+    RemoteButton button,
+    Duration duration,
+  ) async {
     LogService.debug(
       '[WristRemote] holding ${button.name} for '
-      '${wristRemoteHoldDuration.inMilliseconds} ms',
+      '${duration.inMilliseconds} ms',
     );
     await _session.beginHold(button);
-    await Future<void>.delayed(wristRemoteHoldDuration);
+    await Future<void>.delayed(duration);
     await _session.endHold(button);
   }
 
@@ -156,7 +162,6 @@ class _RemoteControlPageState extends State<RemoteControlPage>
     _recordingTick?.cancel();
     _recordingTick = null;
 
-    // Stop accepting new frames immediately — before dialog is shown.
     if (_gifRecorder.state == GifRecordingState.recording) {
       _gifRecorder.pause();
     }
