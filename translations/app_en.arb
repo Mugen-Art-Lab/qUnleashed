@@ -4849,6 +4849,16 @@
   },
 
 
+  "wristRemoteEnabledTitle": "Enable Wrist Remote",
+  "@wristRemoteEnabledTitle": {
+    "description": "Toggle that enables or disables the Android media session used by Wrist Remote."
+  },
+
+  "wristRemoteEnabledSubtitle": "Off by default. Turn on to route media controls and volume buttons to the Flipper while Remote Control is open.",
+  "@wristRemoteEnabledSubtitle": {
+    "description": "Explanation under the Wrist Remote master enable toggle."
+  },
+
   "wristRemoteHoldHelp": "Hold actions keep the selected Flipper button pressed for 1, 2 or 3 seconds. Double taps use a 400 ms gesture window only when the matching double-tap action is assigned.",
   "@wristRemoteHoldHelp": {
     "description": "Explanation of hold duration and double-tap timing in Wrist Remote."
