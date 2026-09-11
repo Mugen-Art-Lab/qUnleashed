@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qunleashed/pages/tools/remote/desktop/media_remote.dart';
@@ -77,6 +79,11 @@ void main() {
   });
 
   test('start stopped during preference load never creates MediaSession', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'remote.media.enabled': true,
+    });
+    final preferences = await SharedPreferences.getInstance();
+    final loadGate = Completer<SharedPreferences>();
     final nativeCalls = <String>[];
     const channel = MethodChannel('qunleashed/media_remote');
     final messenger =
@@ -90,10 +97,13 @@ void main() {
     final bridge = MediaRemoteBridge(
       onButton: (_, _) {},
       supportedOverride: true,
+      preferencesLoader: () => loadGate.future,
     );
 
     final starting = bridge.start();
+    await Future<void>.delayed(Duration.zero);
     await bridge.stop();
+    loadGate.complete(preferences);
     await starting;
 
     expect(nativeCalls, isEmpty);
