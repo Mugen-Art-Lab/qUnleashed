@@ -51,7 +51,9 @@ class MediaRemoteBridge {
   MediaRemoteBridge({
     required this.onButton,
     @visibleForTesting bool? supportedOverride,
-  }) : _supportedOverride = supportedOverride;
+    @visibleForTesting Future<SharedPreferences> Function()? preferencesLoader,
+  }) : _supportedOverride = supportedOverride,
+       _preferencesLoader = preferencesLoader ?? SharedPreferences.getInstance;
 
   static const MethodChannel _channel = MethodChannel(
     'qunleashed/media_remote',
@@ -74,6 +76,7 @@ class MediaRemoteBridge {
 
   final void Function(RemoteButton button, WristRemoteAction action) onButton;
   final bool? _supportedOverride;
+  final Future<SharedPreferences> Function() _preferencesLoader;
   final Map<MediaRemoteInput, RemoteButton?> _mapping = {..._defaults};
   final Map<MediaRemoteInput, WristRemoteAction> _actionMapping = {};
   final Map<MediaRemoteInput, Timer> _pendingSingleTaps = {};
@@ -96,7 +99,7 @@ class MediaRemoteBridge {
   Future<void> ensureLoaded() => _loading ??= _load();
 
   Future<void> _load() async {
-    final preferences = await SharedPreferences.getInstance();
+    final preferences = await _preferencesLoader();
     _preferences = preferences;
 
     final buttons = RemoteButton.values.asNameMap();
