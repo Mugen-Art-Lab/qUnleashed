@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -34,23 +35,30 @@ enum WristRemoteAction {
 }
 
 /// Gesture timing used by Wrist Remote mappings.
+///
+/// Keep the user-facing timing copy in `wristRemoteHoldHelp` in sync if this
+/// changes.
 const Duration wristRemoteDoubleTapDuration = Duration(milliseconds: 400);
 
 /// Dart half of the Android MediaSession bridge used by Wrist Remote.
 ///
 /// It is intentionally page-scoped from the user's point of view:
-/// RemoteControlPage starts it when mounted and stops it on dispose, so watches
-/// only hijack media controls while the user is actively using the Flipper
-/// remote. The native bridge itself is engine-scoped and survives Activity
-/// recreation.
+/// RemoteControlPage starts it when mounted and stops it on dispose. The native
+/// MediaSession itself is only active when Wrist Remote is explicitly enabled,
+/// so ordinary Android media controls are untouched by default. The native
+/// bridge is engine-scoped and survives Activity recreation.
 class MediaRemoteBridge {
-  MediaRemoteBridge({required this.onButton});
+  MediaRemoteBridge({
+    required this.onButton,
+    @visibleForTesting bool? supportedOverride,
+  }) : _supportedOverride = supportedOverride;
 
   static const MethodChannel _channel = MethodChannel(
     'qunleashed/media_remote',
   );
 
   static const String _prefPrefix = 'remote.media.';
+  static const String _enabledPref = '${_prefPrefix}enabled';
   static const String _queueWhileDisconnectedPref =
       '${_prefPrefix}queueWhileDisconnected';
   static const String _notAssignedValue = '__none__';
@@ -59,7 +67,7 @@ class MediaRemoteBridge {
     MediaRemoteInput.previous: RemoteButton.left,
     MediaRemoteInput.doublePrevious: null,
     MediaRemoteInput.playPause: RemoteButton.ok,
-    MediaRemoteInput.doublePlayPause: RemoteButton.back,
+    MediaRemoteInput.doublePlayPause: null,
     MediaRemoteInput.next: RemoteButton.right,
     MediaRemoteInput.doubleNext: null,
     MediaRemoteInput.volumeUp: RemoteButton.up,
@@ -67,16 +75,21 @@ class MediaRemoteBridge {
   };
 
   final void Function(RemoteButton button, WristRemoteAction action) onButton;
+  final bool? _supportedOverride;
   final Map<MediaRemoteInput, RemoteButton?> _mapping = {..._defaults};
   final Map<MediaRemoteInput, WristRemoteAction> _actionMapping = {};
   final Map<MediaRemoteInput, Timer> _pendingSingleTaps = {};
 
   SharedPreferences? _preferences;
-  bool _loaded = false;
+  Future<void>? _loading;
+  Future<void> _nativeSync = Future<void>.value();
   bool _started = false;
+  bool _nativeActive = false;
+  bool _enabled = false;
   bool _queueWhileDisconnected = false;
 
-  bool get supported => Platform.isAndroid;
+  bool get supported => _supportedOverride ?? Platform.isAndroid;
+  bool get enabled => _enabled;
   bool get queueWhileDisconnected => _queueWhileDisconnected;
 
   RemoteButton? buttonFor(MediaRemoteInput input) => _mapping[input];
@@ -84,42 +97,36 @@ class MediaRemoteBridge {
   WristRemoteAction actionFor(MediaRemoteInput input) =>
       _actionMapping[input] ?? WristRemoteAction.tap;
 
-  Future<void> ensureLoaded() async {
-    if (_loaded) return;
+  Future<void> ensureLoaded() => _loading ??= _load();
+
+  Future<void> _load() async {
     final preferences = await SharedPreferences.getInstance();
     _preferences = preferences;
 
+    final buttons = RemoteButton.values.asNameMap();
+    final actions = WristRemoteAction.values.asNameMap();
     for (final input in MediaRemoteInput.values) {
       final stored = preferences.getString('$_prefPrefix${input.name}');
       if (stored == _notAssignedValue) {
         _mapping[input] = null;
       } else if (stored != null) {
-        final parsed = _buttonNamed(stored);
+        final parsed = buttons[stored];
         if (parsed != null) _mapping[input] = parsed;
       }
 
       final storedAction = preferences.getString(
         '$_prefPrefix${input.name}.action',
       );
-      final parsedAction = storedAction == null
-          ? null
-          : _actionNamed(storedAction);
-      if (parsedAction != null) {
-        _actionMapping[input] = parsedAction;
-      } else {
-        final legacyHold =
-            preferences.getBool('$_prefPrefix${input.name}.hold') ?? false;
-        _actionMapping[input] = legacyHold
-            ? WristRemoteAction.hold1s
-            : WristRemoteAction.tap;
-      }
+      final parsedAction = storedAction == null ? null : actions[storedAction];
+      if (parsedAction != null) _actionMapping[input] = parsedAction;
     }
+
+    _enabled = preferences.getBool(_enabledPref) ?? false;
     _queueWhileDisconnected =
         preferences.getBool(_queueWhileDisconnectedPref) ?? false;
-    _loaded = true;
     LogService.debug(
-      '[WristRemote] mappings loaded; queueWhileDisconnected='
-      '$_queueWhileDisconnected',
+      '[WristRemote] mappings loaded; enabled=$_enabled; '
+      'queueWhileDisconnected=$_queueWhileDisconnected',
     );
   }
 
@@ -128,11 +135,12 @@ class MediaRemoteBridge {
     RemoteButton? button,
   ) async {
     await ensureLoaded();
-    _mapping[input] = button;
-    await _preferences!.setString(
-      '$_prefPrefix${input.name}',
-      button?.name ?? _notAssignedValue,
+    final key = '$_prefPrefix${input.name}';
+    await _write(
+      _preferences!.setString(key, button?.name ?? _notAssignedValue),
+      key,
     );
+    _mapping[input] = button;
     LogService.debug(
       '[WristRemote] mapping ${input.name} -> ${button?.name ?? 'none'}',
     );
@@ -143,61 +151,111 @@ class MediaRemoteBridge {
     WristRemoteAction action,
   ) async {
     await ensureLoaded();
+    final key = '$_prefPrefix${input.name}.action';
+    await _write(_preferences!.setString(key, action.name), key);
     _actionMapping[input] = action;
-    await _preferences!.setString(
-      '$_prefPrefix${input.name}.action',
-      action.name,
-    );
-    await _preferences!.remove('$_prefPrefix${input.name}.hold');
     LogService.debug(
       '[WristRemote] mapping ${input.name} action -> ${action.name}',
     );
   }
 
+  Future<void> setEnabled(bool value) async {
+    await ensureLoaded();
+    if (_enabled == value) return;
+    await _write(_preferences!.setBool(_enabledPref, value), _enabledPref);
+    _enabled = value;
+    LogService.info('[WristRemote] enabled -> $value');
+    await _syncNativeState();
+  }
+
   Future<void> setQueueWhileDisconnected(bool value) async {
     await ensureLoaded();
+    if (_queueWhileDisconnected == value) return;
+    await _write(
+      _preferences!.setBool(_queueWhileDisconnectedPref, value),
+      _queueWhileDisconnectedPref,
+    );
     _queueWhileDisconnected = value;
-    await _preferences!.setBool(_queueWhileDisconnectedPref, value);
     LogService.info('[WristRemote] queue while disconnected -> $value');
   }
 
   Future<void> resetMappings() async {
     await ensureLoaded();
     _cancelPendingTaps();
+
+    final writes = <Future<bool>>[
+      for (final input in MediaRemoteInput.values) ...[
+        _preferences!.remove('$_prefPrefix${input.name}'),
+        _preferences!.remove('$_prefPrefix${input.name}.action'),
+      ],
+      _preferences!.remove(_queueWhileDisconnectedPref),
+    ];
+    final results = await Future.wait(writes);
+    if (results.any((ok) => !ok)) {
+      throw StateError('Failed to reset Wrist Remote preferences');
+    }
+
     _mapping
       ..clear()
       ..addAll(_defaults);
     _actionMapping.clear();
     _queueWhileDisconnected = false;
-    for (final input in MediaRemoteInput.values) {
-      await _preferences!.remove('$_prefPrefix${input.name}');
-      await _preferences!.remove('$_prefPrefix${input.name}.action');
-      await _preferences!.remove('$_prefPrefix${input.name}.hold');
-    }
-    await _preferences!.remove(_queueWhileDisconnectedPref);
     LogService.debug('[WristRemote] mappings reset');
   }
 
   Future<void> start() async {
     if (!supported || _started) return;
-    await ensureLoaded();
+
+    // Latch ownership before the first await. stop() may run while preferences
+    // are loading; in that case the reconciliation below sees _started=false
+    // and never creates a MediaSession for a page that has already gone away.
     _started = true;
-    _channel.setMethodCallHandler(_handleCall);
-    LogService.info('[WristRemote] start requested');
     try {
-      await _channel.invokeMethod<void>('start');
-      LogService.info('[WristRemote] started');
+      await ensureLoaded();
     } catch (e) {
       _started = false;
-      _channel.setMethodCallHandler(null);
-      LogService.error('[WristRemote] start failed: $e');
+      LogService.error('[WristRemote] preference load failed: $e');
+      return;
     }
+    await _syncNativeState();
   }
 
   Future<void> stop() async {
-    if (!supported || !_started) return;
+    if (!supported) return;
     _started = false;
     _cancelPendingTaps();
+    await _syncNativeState();
+  }
+
+  Future<void> _syncNativeState() {
+    final next = _nativeSync.then((_) => _reconcileNativeState());
+    _nativeSync = next.catchError((Object _) {});
+    return next;
+  }
+
+  Future<void> _reconcileNativeState() async {
+    final shouldBeActive = _started && _enabled;
+    if (shouldBeActive == _nativeActive) return;
+
+    if (shouldBeActive) {
+      _channel.setMethodCallHandler(_handleCall);
+      LogService.info('[WristRemote] start requested');
+      try {
+        await _channel.invokeMethod<void>('start');
+        _nativeActive = true;
+        LogService.info('[WristRemote] started');
+      } catch (e) {
+        _channel.setMethodCallHandler(null);
+        LogService.error('[WristRemote] start failed: $e');
+      }
+      return;
+    }
+
+    if (!_nativeActive) {
+      _channel.setMethodCallHandler(null);
+      return;
+    }
+
     LogService.info('[WristRemote] stop requested');
     try {
       await _channel.invokeMethod<void>('stop');
@@ -205,9 +263,13 @@ class MediaRemoteBridge {
     } catch (e) {
       LogService.warn('[WristRemote] stop failed: $e');
     } finally {
+      _nativeActive = false;
       _channel.setMethodCallHandler(null);
     }
   }
+
+  @visibleForTesting
+  Future<dynamic> handleCallForTesting(MethodCall call) => _handleCall(call);
 
   Future<dynamic> _handleCall(MethodCall call) async {
     if (call.method != 'button') {
@@ -215,31 +277,23 @@ class MediaRemoteBridge {
     }
 
     switch (call.arguments) {
-      case 'left':
       case 'previous':
         _handleTap(MediaRemoteInput.previous, MediaRemoteInput.doublePrevious);
-      case 'ok':
       case 'playPause':
         _handleTap(
           MediaRemoteInput.playPause,
           MediaRemoteInput.doublePlayPause,
         );
-      case 'right':
       case 'next':
         _handleTap(MediaRemoteInput.next, MediaRemoteInput.doubleNext);
-      case 'back':
-      case 'doublePlayPause':
-        _dispatch(MediaRemoteInput.doublePlayPause);
-      case 'doublePrevious':
-        _dispatch(MediaRemoteInput.doublePrevious);
-      case 'doubleNext':
-        _dispatch(MediaRemoteInput.doubleNext);
-      case 'up':
       case 'volumeUp':
         _dispatch(MediaRemoteInput.volumeUp);
-      case 'down':
       case 'volumeDown':
         _dispatch(MediaRemoteInput.volumeDown);
+      default:
+        LogService.warn(
+          '[WristRemote] unknown media input: ${call.arguments}',
+        );
     }
     return null;
   }
@@ -286,17 +340,9 @@ class MediaRemoteBridge {
     _pendingSingleTaps.clear();
   }
 
-  RemoteButton? _buttonNamed(String name) {
-    for (final button in RemoteButton.values) {
-      if (button.name == name) return button;
+  Future<void> _write(Future<bool> write, String key) async {
+    if (!await write) {
+      throw StateError('Failed to persist Wrist Remote preference: $key');
     }
-    return null;
-  }
-
-  WristRemoteAction? _actionNamed(String name) {
-    for (final action in WristRemoteAction.values) {
-      if (action.name == name) return action;
-    }
-    return null;
   }
 }
