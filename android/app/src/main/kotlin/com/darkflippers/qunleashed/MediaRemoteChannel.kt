@@ -49,7 +49,7 @@ class MediaRemoteChannel(
     private var mediaSession: MediaSession? = null
 
     init {
-        Log.i(TAG, "bridge attached to FlutterEngine pid=${android.os.Process.myPid()}")
+        trace("bridge attached to FlutterEngine pid=${android.os.Process.myPid()}")
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "start" -> {
@@ -66,18 +66,18 @@ class MediaRemoteChannel(
     }
 
     fun dispose() {
-        Log.i(TAG, "bridge dispose pid=${android.os.Process.myPid()}")
+        trace("bridge dispose pid=${android.os.Process.myPid()}")
         stop()
         channel.setMethodCallHandler(null)
     }
 
     private fun start() {
         if (mediaSession != null) {
-            Log.d(TAG, "start ignored: MediaSession already active")
+            trace("start ignored: MediaSession already active")
             return
         }
 
-        Log.i(TAG, "creating MediaSession pid=${android.os.Process.myPid()}")
+        trace("creating MediaSession pid=${android.os.Process.myPid()}")
         val session = MediaSession(appContext, "qUnleashed Wrist Remote")
         session.setCallback(
             object : MediaSession.Callback() {
@@ -149,26 +149,32 @@ class MediaRemoteChannel(
         )
         session.isActive = true
         mediaSession = session
-        Log.i(TAG, "MediaSession active")
+        trace("MediaSession active")
     }
 
     private fun stop() {
         val session = mediaSession
         if (session == null) {
-            Log.d(TAG, "stop ignored: no MediaSession")
+            trace("stop ignored: no MediaSession")
             return
         }
 
-        Log.i(TAG, "releasing MediaSession")
+        trace("releasing MediaSession")
         session.isActive = false
         session.release()
         mediaSession = null
     }
 
     private fun sendInput(input: String) {
-        Log.d(TAG, "media command -> $input")
+        trace("media command -> $input")
         mainHandler.post {
             channel.invokeMethod("button", input)
+        }
+    }
+
+    private fun trace(message: String) {
+        if (Log.isLoggable(TAG, Log.DEBUG)) {
+            Log.d(TAG, message)
         }
     }
 }
