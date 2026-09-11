@@ -17,8 +17,11 @@ import io.flutter.plugin.common.MethodChannel
  * Android MediaSession bridge used by Wrist Remote.
  *
  * A wearable can keep talking to Android as if it were controlling music while
- * qUnleashed turns those transport/volume commands into Flipper button names
+ * qUnleashed turns those transport/volume commands into semantic media inputs
  * and forwards them to Dart over a MethodChannel.
+ *
+ * Gesture recognition lives in Dart so single taps only incur the double-tap
+ * window when the corresponding double-tap action is actually assigned.
  *
  * This object is owned by the cached FlutterEngine rather than MainActivity, so
  * recreating or destroying the Activity does not tear down the MediaSession.
@@ -29,7 +32,6 @@ class MediaRemoteChannel(
 ) {
     companion object {
         private const val CHANNEL = "qunleashed/media_remote"
-        private const val DOUBLE_TAP_MS = 400L
         private const val TAG = "WristRemote"
 
         private const val ACTIONS =
@@ -45,7 +47,6 @@ class MediaRemoteChannel(
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var mediaSession: MediaSession? = null
-    private var pendingCenterTap: Runnable? = null
 
     init {
         Log.i(TAG, "bridge attached to FlutterEngine pid=${android.os.Process.myPid()}")
@@ -80,13 +81,13 @@ class MediaRemoteChannel(
         val session = MediaSession(appContext, "qUnleashed Wrist Remote")
         session.setCallback(
             object : MediaSession.Callback() {
-                override fun onPlay() = centerTap()
+                override fun onPlay() = sendInput("playPause")
 
-                override fun onPause() = centerTap()
+                override fun onPause() = sendInput("playPause")
 
-                override fun onSkipToPrevious() = sendButton("left")
+                override fun onSkipToPrevious() = sendInput("previous")
 
-                override fun onSkipToNext() = sendButton("right")
+                override fun onSkipToNext() = sendInput("next")
 
                 override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
                     @Suppress("DEPRECATION")
@@ -96,18 +97,18 @@ class MediaRemoteChannel(
 
                     return when (event.keyCode) {
                         KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                            sendButton("left")
+                            sendInput("previous")
                             true
                         }
                         KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                            sendButton("right")
+                            sendInput("next")
                             true
                         }
                         KeyEvent.KEYCODE_MEDIA_PLAY,
                         KeyEvent.KEYCODE_MEDIA_PAUSE,
                         KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
                         -> {
-                            centerTap()
+                            sendInput("playPause")
                             true
                         }
                         else -> super.onMediaButtonEvent(mediaButtonIntent)
@@ -140,8 +141,8 @@ class MediaRemoteChannel(
             object : VolumeProvider(VolumeProvider.VOLUME_CONTROL_RELATIVE, 100, 50) {
                 override fun onAdjustVolume(direction: Int) {
                     when {
-                        direction > 0 -> sendButton("up")
-                        direction < 0 -> sendButton("down")
+                        direction > 0 -> sendInput("volumeUp")
+                        direction < 0 -> sendInput("volumeDown")
                     }
                 }
             },
@@ -152,9 +153,6 @@ class MediaRemoteChannel(
     }
 
     private fun stop() {
-        pendingCenterTap?.let(mainHandler::removeCallbacks)
-        pendingCenterTap = null
-
         val session = mediaSession
         if (session == null) {
             Log.d(TAG, "stop ignored: no MediaSession")
@@ -167,31 +165,10 @@ class MediaRemoteChannel(
         mediaSession = null
     }
 
-    /**
-     * Single play/pause is OK. A second tap inside the small gesture window
-     * cancels the pending OK and becomes BACK instead.
-     */
-    private fun centerTap() {
-        val pending = pendingCenterTap
-        if (pending != null) {
-            mainHandler.removeCallbacks(pending)
-            pendingCenterTap = null
-            sendButton("back")
-            return
-        }
-
-        val singleTap = Runnable {
-            pendingCenterTap = null
-            sendButton("ok")
-        }
-        pendingCenterTap = singleTap
-        mainHandler.postDelayed(singleTap, DOUBLE_TAP_MS)
-    }
-
-    private fun sendButton(button: String) {
-        Log.d(TAG, "media command -> $button")
+    private fun sendInput(input: String) {
+        Log.d(TAG, "media command -> $input")
         mainHandler.post {
-            channel.invokeMethod("button", button)
+            channel.invokeMethod("button", input)
         }
     }
 }

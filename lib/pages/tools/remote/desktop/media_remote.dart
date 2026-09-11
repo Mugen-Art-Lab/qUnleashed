@@ -10,14 +10,17 @@ import 'models/models.dart';
 /// Media controls Android may receive from a watch or fitness band.
 enum MediaRemoteInput {
   previous,
+  doublePrevious,
   playPause,
-  next,
   doublePlayPause,
+  next,
+  doubleNext,
   volumeUp,
   volumeDown,
 }
 
-/// Automatic hold duration used by Wrist Remote hold mappings.
+/// Gesture timing used by Wrist Remote mappings.
+const Duration wristRemoteDoubleTapDuration = Duration(milliseconds: 400);
 const Duration wristRemoteHoldDuration = Duration(milliseconds: 800);
 
 /// Dart half of the Android MediaSession bridge used by Wrist Remote.
@@ -37,19 +40,23 @@ class MediaRemoteBridge {
   static const String _prefPrefix = 'remote.media.';
   static const String _queueWhileDisconnectedPref =
       '${_prefPrefix}queueWhileDisconnected';
+  static const String _notAssignedValue = '__none__';
 
-  static const Map<MediaRemoteInput, RemoteButton> _defaults = {
+  static const Map<MediaRemoteInput, RemoteButton?> _defaults = {
     MediaRemoteInput.previous: RemoteButton.left,
+    MediaRemoteInput.doublePrevious: null,
     MediaRemoteInput.playPause: RemoteButton.ok,
-    MediaRemoteInput.next: RemoteButton.right,
     MediaRemoteInput.doublePlayPause: RemoteButton.back,
+    MediaRemoteInput.next: RemoteButton.right,
+    MediaRemoteInput.doubleNext: null,
     MediaRemoteInput.volumeUp: RemoteButton.up,
     MediaRemoteInput.volumeDown: RemoteButton.down,
   };
 
   final void Function(RemoteButton button, bool hold) onButton;
-  final Map<MediaRemoteInput, RemoteButton> _mapping = {..._defaults};
+  final Map<MediaRemoteInput, RemoteButton?> _mapping = {..._defaults};
   final Map<MediaRemoteInput, bool> _holdMapping = {};
+  final Map<MediaRemoteInput, Timer> _pendingSingleTaps = {};
 
   SharedPreferences? _preferences;
   bool _loaded = false;
@@ -59,8 +66,7 @@ class MediaRemoteBridge {
   bool get supported => Platform.isAndroid;
   bool get queueWhileDisconnected => _queueWhileDisconnected;
 
-  RemoteButton buttonFor(MediaRemoteInput input) =>
-      _mapping[input] ?? _defaults[input]!;
+  RemoteButton? buttonFor(MediaRemoteInput input) => _mapping[input];
 
   bool holdFor(MediaRemoteInput input) => _holdMapping[input] ?? false;
 
@@ -71,7 +77,9 @@ class MediaRemoteBridge {
 
     for (final input in MediaRemoteInput.values) {
       final stored = preferences.getString('$_prefPrefix${input.name}');
-      if (stored != null) {
+      if (stored == _notAssignedValue) {
+        _mapping[input] = null;
+      } else if (stored != null) {
         final parsed = _buttonNamed(stored);
         if (parsed != null) _mapping[input] = parsed;
       }
@@ -87,20 +95,26 @@ class MediaRemoteBridge {
     );
   }
 
-  Future<void> setButtonFor(MediaRemoteInput input, RemoteButton button) async {
+  Future<void> setButtonFor(
+    MediaRemoteInput input,
+    RemoteButton? button,
+  ) async {
     await ensureLoaded();
     _mapping[input] = button;
-    await _preferences!.setString('$_prefPrefix${input.name}', button.name);
-    LogService.debug('[WristRemote] mapping ${input.name} -> ${button.name}');
+    await _preferences!.setString(
+      '$_prefPrefix${input.name}',
+      button?.name ?? _notAssignedValue,
+    );
+    LogService.debug(
+      '[WristRemote] mapping ${input.name} -> ${button?.name ?? 'none'}',
+    );
   }
 
   Future<void> setHoldFor(MediaRemoteInput input, bool hold) async {
     await ensureLoaded();
     _holdMapping[input] = hold;
     await _preferences!.setBool('$_prefPrefix${input.name}.hold', hold);
-    LogService.debug(
-      '[WristRemote] mapping ${input.name} hold -> $hold',
-    );
+    LogService.debug('[WristRemote] mapping ${input.name} hold -> $hold');
   }
 
   Future<void> setQueueWhileDisconnected(bool value) async {
@@ -112,6 +126,7 @@ class MediaRemoteBridge {
 
   Future<void> resetMappings() async {
     await ensureLoaded();
+    _cancelPendingTaps();
     _mapping
       ..clear()
       ..addAll(_defaults);
@@ -144,6 +159,7 @@ class MediaRemoteBridge {
   Future<void> stop() async {
     if (!supported || !_started) return;
     _started = false;
+    _cancelPendingTaps();
     LogService.info('[WristRemote] stop requested');
     try {
       await _channel.invokeMethod<void>('stop');
@@ -160,31 +176,71 @@ class MediaRemoteBridge {
       throw MissingPluginException('${call.method} is not implemented');
     }
 
-    final input = switch (call.arguments) {
-      'left' => MediaRemoteInput.previous,
-      'ok' => MediaRemoteInput.playPause,
-      'right' => MediaRemoteInput.next,
-      'back' => MediaRemoteInput.doublePlayPause,
-      'up' => MediaRemoteInput.volumeUp,
-      'down' => MediaRemoteInput.volumeDown,
-      'previous' => MediaRemoteInput.previous,
-      'playPause' => MediaRemoteInput.playPause,
-      'next' => MediaRemoteInput.next,
-      'doublePlayPause' => MediaRemoteInput.doublePlayPause,
-      'volumeUp' => MediaRemoteInput.volumeUp,
-      'volumeDown' => MediaRemoteInput.volumeDown,
-      _ => null,
-    };
-    if (input != null) {
-      final button = buttonFor(input);
-      final hold = holdFor(input);
-      LogService.debug(
-        '[WristRemote] input ${input.name} -> ${button.name}'
-        '${hold ? ' (hold)' : ''}',
-      );
-      onButton(button, hold);
+    switch (call.arguments) {
+      case 'left':
+      case 'previous':
+        _handleTap(MediaRemoteInput.previous, MediaRemoteInput.doublePrevious);
+      case 'ok':
+      case 'playPause':
+        _handleTap(MediaRemoteInput.playPause, MediaRemoteInput.doublePlayPause);
+      case 'right':
+      case 'next':
+        _handleTap(MediaRemoteInput.next, MediaRemoteInput.doubleNext);
+      case 'back':
+      case 'doublePlayPause':
+        _dispatch(MediaRemoteInput.doublePlayPause);
+      case 'doublePrevious':
+        _dispatch(MediaRemoteInput.doublePrevious);
+      case 'doubleNext':
+        _dispatch(MediaRemoteInput.doubleNext);
+      case 'up':
+      case 'volumeUp':
+        _dispatch(MediaRemoteInput.volumeUp);
+      case 'down':
+      case 'volumeDown':
+        _dispatch(MediaRemoteInput.volumeDown);
     }
     return null;
+  }
+
+  void _handleTap(MediaRemoteInput single, MediaRemoteInput doubleTap) {
+    if (buttonFor(doubleTap) == null) {
+      _dispatch(single);
+      return;
+    }
+
+    final pending = _pendingSingleTaps.remove(single);
+    if (pending != null) {
+      pending.cancel();
+      _dispatch(doubleTap);
+      return;
+    }
+
+    _pendingSingleTaps[single] = Timer(wristRemoteDoubleTapDuration, () {
+      _pendingSingleTaps.remove(single);
+      _dispatch(single);
+    });
+  }
+
+  void _dispatch(MediaRemoteInput input) {
+    final button = buttonFor(input);
+    if (button == null) {
+      LogService.debug('[WristRemote] input ${input.name} ignored: unassigned');
+      return;
+    }
+    final hold = holdFor(input);
+    LogService.debug(
+      '[WristRemote] input ${input.name} -> ${button.name}'
+      '${hold ? ' (hold)' : ''}',
+    );
+    onButton(button, hold);
+  }
+
+  void _cancelPendingTaps() {
+    for (final timer in _pendingSingleTaps.values) {
+      timer.cancel();
+    }
+    _pendingSingleTaps.clear();
   }
 
   RemoteButton? _buttonNamed(String name) {

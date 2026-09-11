@@ -17,7 +17,7 @@ Future<void> showMediaRemoteSettingsDialog(
         builder: (context, setState) {
           Future<void> setMapping(
             MediaRemoteInput input,
-            RemoteButton button,
+            RemoteButton? button,
           ) async {
             await bridge.setButtonFor(input, button);
             if (context.mounted) setState(() {});
@@ -48,8 +48,9 @@ Future<void> showMediaRemoteSettingsDialog(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Choose which Flipper button each media control sends. '
-                      'Available controls depend on the watch or band UI.',
+                      'Choose which Flipper button each media gesture sends. '
+                      'Double-tap rows can be left unassigned for instant '
+                      'single-tap response.',
                     ),
                     const SizedBox(height: 16),
                     for (final input in MediaRemoteInput.values) ...[
@@ -79,7 +80,8 @@ Future<void> showMediaRemoteSettingsDialog(
                     const SizedBox(height: 8),
                     const Text(
                       'Hold (beta) keeps the selected Flipper button pressed '
-                      'for 800 ms.',
+                      'for 800 ms. Double taps use a 400 ms gesture window only '
+                      'when the matching double-tap action is assigned.',
                       style: TextStyle(fontSize: 12),
                     ),
                     const SizedBox(height: 6),
@@ -116,9 +118,9 @@ class _MappingRow extends StatelessWidget {
   });
 
   final MediaRemoteInput input;
-  final RemoteButton value;
+  final RemoteButton? value;
   final bool hold;
-  final ValueChanged<RemoteButton> onChanged;
+  final ValueChanged<RemoteButton?> onChanged;
   final ValueChanged<bool> onHoldChanged;
 
   @override
@@ -134,15 +136,17 @@ class _MappingRow extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: DropdownButton<RemoteButton>(
+              child: DropdownButton<RemoteButton?>(
                 isExpanded: true,
                 value: value,
-                onChanged: (button) {
-                  if (button != null) onChanged(button);
-                },
+                onChanged: onChanged,
                 items: [
+                  const DropdownMenuItem<RemoteButton?>(
+                    value: null,
+                    child: Text('Not assigned'),
+                  ),
                   for (final button in RemoteButton.values)
-                    DropdownMenuItem(
+                    DropdownMenuItem<RemoteButton?>(
                       value: button,
                       child: Text(_buttonLabel(button)),
                     ),
@@ -152,9 +156,11 @@ class _MappingRow extends StatelessWidget {
             const SizedBox(width: 12),
             DropdownButton<bool>(
               value: hold,
-              onChanged: (value) {
-                if (value != null) onHoldChanged(value);
-              },
+              onChanged: value == null
+                  ? null
+                  : (next) {
+                      if (next != null) onHoldChanged(next);
+                    },
               items: const [
                 DropdownMenuItem(value: false, child: Text('Tap')),
                 DropdownMenuItem(value: true, child: Text('Hold (beta)')),
@@ -169,9 +175,11 @@ class _MappingRow extends StatelessWidget {
 
 String _inputLabel(MediaRemoteInput input) => switch (input) {
   MediaRemoteInput.previous => '⏮  Previous',
+  MediaRemoteInput.doublePrevious => '⏮×2  Double Previous',
   MediaRemoteInput.playPause => '⏯  Play / Pause',
+  MediaRemoteInput.doublePlayPause => '⏯×2  Double Play / Pause',
   MediaRemoteInput.next => '⏭  Next',
-  MediaRemoteInput.doublePlayPause => '⏯×2  Double tap',
+  MediaRemoteInput.doubleNext => '⏭×2  Double Next',
   MediaRemoteInput.volumeUp => '🔊  Volume +',
   MediaRemoteInput.volumeDown => '🔉  Volume −',
 };
