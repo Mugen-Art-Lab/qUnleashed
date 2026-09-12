@@ -10,6 +10,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
+    MediaRemoteBridge.resetNativeStateForTesting();
     SharedPreferences.setMockInitialValues(<String, Object>{});
   });
 
@@ -73,6 +74,85 @@ void main() {
     await bridge.ensureLoaded();
 
     expect(attempts, 2);
+  });
+
+  test('start retries after a transient preference load failure', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'remote.media.enabled': true,
+    });
+    final preferences = await SharedPreferences.getInstance();
+    final nativeCalls = <String>[];
+    var attempts = 0;
+    const channel = MethodChannel('qunleashed/media_remote');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      nativeCalls.add(call.method);
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    final bridge = MediaRemoteBridge(
+      onButton: (_, _) {},
+      supportedOverride: true,
+      preferencesLoader: () {
+        attempts++;
+        if (attempts == 1) {
+          return Future<SharedPreferences>.error(
+            StateError('transient preferences failure'),
+          );
+        }
+        return Future<SharedPreferences>.value(preferences);
+      },
+    );
+
+    await expectLater(bridge.start(), throwsStateError);
+    expect(nativeCalls, isEmpty);
+
+    await bridge.start();
+    expect(attempts, 2);
+    expect(nativeCalls, ['start']);
+
+    await bridge.stop();
+    expect(nativeCalls, ['start', 'stop']);
+  });
+
+  test('native start failure is surfaced and can be retried', () async {
+    final nativeCalls = <String>[];
+    var failStart = true;
+    const channel = MethodChannel('qunleashed/media_remote');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      nativeCalls.add(call.method);
+      if (call.method == 'start' && failStart) {
+        throw PlatformException(
+          code: 'media_session_start_failed',
+          message: 'native start failed',
+        );
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    final bridge = MediaRemoteBridge(
+      onButton: (_, _) {},
+      supportedOverride: true,
+    );
+
+    await bridge.start();
+    await expectLater(
+      bridge.setEnabled(true),
+      throwsA(isA<PlatformException>()),
+    );
+    expect(nativeCalls, ['start']);
+
+    failStart = false;
+    await bridge.start();
+    expect(nativeCalls, ['start', 'start']);
+
+    await bridge.setEnabled(false);
+    expect(nativeCalls, ['start', 'start', 'stop']);
   });
 
   test('assigned double tap delays single and wins on second tap', () async {
