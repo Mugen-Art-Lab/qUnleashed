@@ -66,6 +66,14 @@ class MediaRemoteBridge {
   static MediaRemoteBridge? _nativeOwner;
   static bool _nativeActive = false;
 
+  @visibleForTesting
+  static void resetNativeStateForTesting() {
+    _nativeSync = Future<void>.value();
+    _nativeOwner = null;
+    _nativeActive = false;
+    _channel.setMethodCallHandler(null);
+  }
+
   static const String _prefPrefix = 'remote.media.';
   static const String _enabledPref = '${_prefPrefix}enabled';
   static const String _notAssignedValue = '__none__';
@@ -207,18 +215,20 @@ class MediaRemoteBridge {
   }
 
   Future<void> start() async {
-    if (!supported || _started) return;
+    if (!supported) return;
 
     // Latch ownership before the first await. stop() may run while preferences
     // are loading; in that case the reconciliation below sees _started=false
     // and never creates a MediaSession for a page that has already gone away.
+    // Repeated calls are intentional: they let an explicit user action retry a
+    // transient preference or native MediaSession failure on the same page.
     _started = true;
     try {
       await ensureLoaded();
     } catch (e) {
       _started = false;
       LogService.error('[WristRemote] preference load failed: $e');
-      return;
+      rethrow;
     }
     await _syncNativeState();
   }
@@ -262,6 +272,7 @@ class MediaRemoteBridge {
           _channel.setMethodCallHandler(null);
         }
         LogService.error('[WristRemote] start failed: $e');
+        rethrow;
       }
       return;
     }
