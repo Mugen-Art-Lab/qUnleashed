@@ -1,4 +1,4 @@
-name: Wrist Remote localization patch
+name: Wrist Remote rebase helper
 
 on:
   push:
@@ -9,63 +9,19 @@ permissions:
   contents: write
 
 jobs:
-  patch:
+  rebase:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: wrist-remote-pr
+          ref: wrist-remote-rebase-r3
+          fetch-depth: 0
 
-      - name: Patch Wrist Remote localization
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path('translations/app_en.arb')
-          text = path.read_text()
-
-          key = '"wristRemoteSettingsLoadFailed"'
-          if key not in text:
-              marker = '  "wristRemoteEnabledTitle":'
-              lines = [
-                  '  "wristRemoteSettingsLoadFailed": "Could not load Wrist Remote settings: {error}",',
-                  '  "@wristRemoteSettingsLoadFailed": {',
-                  '    "description": "Toast shown when Wrist Remote settings could not be loaded or prepared.",',
-                  '    "placeholders": {',
-                  '      "error": {',
-                  '        "type": "String"',
-                  '      }',
-                  '    }',
-                  '  },',
-                  '',
-              ]
-              block = '\n'.join(lines) + '\n'
-              if marker not in text:
-                  raise SystemExit('Wrist Remote localization marker not found')
-              text = text.replace(marker, block + marker, 1)
-
-          old_help = 'Double taps use a 400 ms gesture window only when the matching double-tap action is assigned.'
-          new_help = 'Double taps use a 400 ms gesture window only when the matching double-tap mapping is assigned.'
-          if old_help in text:
-              text = text.replace(old_help, new_help, 1)
-
-          intro_tail = '  "@wristRemoteMappingIntro": {\n    "description": "Introduction at the top of the Wrist Remote mapping dialog."\n  },\n\n\n'
-          if intro_tail in text:
-              text = text.replace(intro_tail, intro_tail[:-1], 1)
-
-          path.write_text(text)
-          PY
-
-      - name: Commit patch to Wrist Remote branch
+      - name: Cherry-pick Wrist Remote onto current upstream base
         shell: bash
         run: |
           git config user.name "MrSoichi"
           git config user.email "21004580+MrSoichi@users.noreply.github.com"
-          git add translations/app_en.arb
-          if git diff --cached --quiet; then
-            echo "Nothing to patch"
-            exit 0
-          fi
-          git commit -m "Fix Wrist Remote settings error copy"
-          git push origin HEAD:wrist-remote-pr
+          git fetch origin wrist-remote-pr
+          git cherry-pick origin/wrist-remote-pr
+          git push --force origin HEAD:wrist-remote-pr
