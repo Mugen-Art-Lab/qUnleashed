@@ -1,0 +1,86 @@
+name: Wrist Remote final check
+
+on:
+  push:
+    branches:
+      - wrist-remote-final-check
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wrist-remote-final-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: ./.github/actions/setup-flutter
+
+      - name: Stub Firebase Dart configuration
+        run: .github/scripts/stub_firebase_config.sh
+
+      - name: Stub Android Firebase configuration
+        shell: bash
+        run: |
+          cat > android/app/google-services.json <<'JSON'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "qunleashed-final-check",
+              "storage_bucket": "qunleashed-final-check.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+                  "android_client_info": {
+                    "package_name": "com.darkflippers.qunleashed"
+                  }
+                },
+                "api_key": [
+                  {"current_key": "final-placeholder-key"}
+                ],
+                "services": {
+                  "appinvite_service": {"other_platform_oauth_client": []}
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          JSON
+
+      - name: Generate localization
+        run: flutter gen-l10n
+
+      - name: Check translation ownership
+        shell: bash
+        run: printf '%s\n' translations/app_en.arb | .github/scripts/check_translation_sources.sh
+
+      - name: Check formatting
+        run: .github/scripts/check_format.sh
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Build Android arm64 release APK
+        run: flutter build apk --release --target-platform android-arm64 --split-per-abi
