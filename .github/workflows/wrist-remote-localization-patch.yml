@@ -1,0 +1,71 @@
+name: Wrist Remote localization patch
+
+on:
+  push:
+    branches:
+      - wrist-remote-localization-patch
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wrist-remote-pr
+
+      - name: Patch Wrist Remote localization
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('translations/app_en.arb')
+          text = path.read_text()
+
+          key = '"wristRemoteSettingsLoadFailed"'
+          if key not in text:
+              marker = '  "wristRemoteEnabledTitle":'
+              block = '''  "wristRemoteSettingsLoadFailed": "Could not load Wrist Remote settings: {error}",
+  "@wristRemoteSettingsLoadFailed": {
+    "description": "Toast shown when Wrist Remote settings could not be loaded or prepared.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+
+'''
+              if marker not in text:
+                  raise SystemExit('Wrist Remote localization marker not found')
+              text = text.replace(marker, block + marker, 1)
+
+          old_help = 'Double taps use a 400 ms gesture window only when the matching double-tap action is assigned.'
+          new_help = 'Double taps use a 400 ms gesture window only when the matching double-tap mapping is assigned.'
+          if old_help in text:
+              text = text.replace(old_help, new_help, 1)
+
+          text = text.replace(
+              '  "@wristRemoteMappingIntro": {\n    "description": "Introduction at the top of the Wrist Remote mapping dialog."\n  },\n\n\n  "wristRemoteSettingsLoadFailed"',
+              '  "@wristRemoteMappingIntro": {\n    "description": "Introduction at the top of the Wrist Remote mapping dialog."\n  },\n\n  "wristRemoteSettingsLoadFailed"',
+              1,
+          )
+
+          path.write_text(text)
+          PY
+
+      - name: Commit patch to Wrist Remote branch
+        shell: bash
+        run: |
+          git config user.name "MrSoichi"
+          git config user.email "21004580+MrSoichi@users.noreply.github.com"
+          git add translations/app_en.arb
+          if git diff --cached --quiet; then
+            echo "Nothing to patch"
+            exit 0
+          fi
+          git commit -m "Fix Wrist Remote settings error copy"
+          git push origin HEAD:wrist-remote-pr
