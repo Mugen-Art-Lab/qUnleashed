@@ -48,7 +48,16 @@ class _RemoteControlPageState extends State<RemoteControlPage>
       ..addListener(_onSessionChanged)
       ..onRawFrame = _onRawFrame;
     _mediaRemote = MediaRemoteBridge(onButton: _onMediaRemoteButton);
-    unawaited(_mediaRemote.start());
+    unawaited(_startMediaRemote());
+  }
+
+  Future<void> _startMediaRemote() async {
+    try {
+      await _mediaRemote.start();
+    } catch (_) {
+      // The bridge already logs the failure. Initial lifecycle startup has no
+      // user gesture to attach an error notification to; settings can retry it.
+    }
   }
 
   @override
@@ -243,12 +252,30 @@ class _RemoteControlPageState extends State<RemoteControlPage>
   }
 
   Future<void> _openWristRemoteSettings() async {
+    Object? startError;
+    try {
+      // Reconcile again on an explicit settings action. This re-arms a page
+      // whose initial preference/native startup failed without requiring the
+      // user to leave and reopen Remote Control.
+      await _mediaRemote.start();
+    } catch (e) {
+      startError = e;
+    }
+
+    if (!mounted) return;
+    if (startError != null) {
+      context.showNotification(
+        context.l10n.wristRemoteSettingsLoadFailed('$startError'),
+        type: QNotificationType.error,
+      );
+    }
+
     try {
       await showMediaRemoteSettingsDialog(context, _mediaRemote);
     } catch (e) {
       if (!mounted) return;
       context.showNotification(
-        context.l10n.remoteSaveFailed('$e'),
+        context.l10n.wristRemoteSettingsLoadFailed('$e'),
         type: QNotificationType.error,
       );
     }
